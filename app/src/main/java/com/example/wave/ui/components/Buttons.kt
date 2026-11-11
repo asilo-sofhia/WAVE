@@ -24,6 +24,8 @@ import com.example.wave.ui.theme.Blue700
 import com.example.wave.ui.theme.ButtonHeight
 import com.example.wave.ui.theme.Divider
 import com.example.wave.ui.theme.MinTouch
+import com.example.wave.ui.theme.UnknownBg
+import com.example.wave.ui.theme.UnknownFg
 import com.example.wave.ui.theme.WaveShapes
 
 @Composable
@@ -43,8 +45,8 @@ fun PrimaryButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = containerColor,
             contentColor = Color.White,
-            disabledContainerColor = containerColor.copy(alpha = 0.7f),
-            disabledContentColor = Color.White,
+            disabledContainerColor = if (loading) containerColor else UnknownBg,
+            disabledContentColor = if (loading) Color.White else UnknownFg,
         ),
         modifier = modifier.fillMaxWidth().heightIn(min = ButtonHeight),
     ) {

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -113,20 +114,13 @@ fun StatusCard(
                 icon = style?.icon ?: icon,
                 tint = style?.fg ?: Blue400,
                 background = style?.bg ?: BlueTint,
-                size = 44.dp,
+                size = 36.dp,
             )
-            Spacer(Modifier.width(Spacing.m))
-            Column(Modifier.weight(1f)) {
-                Text(label, style = MaterialTheme.typography.bodySmall, color = Slate600)
-                Text(
-                    value,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = style?.fg ?: Navy900,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Spacer(Modifier.width(Spacing.s))
+            FitText(label, style = MaterialTheme.typography.bodyMedium, color = Slate600, modifier = Modifier.weight(1f))
         }
+        Spacer(Modifier.height(Spacing.s))
+        FitText(value, style = MaterialTheme.typography.titleSmall, color = style?.fg ?: Navy900)
     }
 }
 

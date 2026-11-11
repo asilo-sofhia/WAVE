@@ -5,7 +5,7 @@ import androidx.compose.ui.graphics.Color
 // Brand / surfaces (see docs/FRONTEND_PLAN.md §5). Every text pair is >= 4.5:1.
 val SkyTop = Color(0xFFE8F5FF)
 val SkyBottom = Color(0xFFC4E5FF)
-val CardSurface = Color(0xE6FFFFFF) // white @ 90%
+val CardSurface = Color(0xFFFBFDFF) // opaque: translucent cards show their own shadow through
 val CardBorder = Color(0x99FFFFFF)
 val Navy900 = Color(0xFF0E1E3F)
 val Slate600 = Color(0xFF4A5873)

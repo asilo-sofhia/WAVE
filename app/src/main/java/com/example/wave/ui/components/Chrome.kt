@@ -71,7 +71,7 @@ fun WaveTopBar(
     ) {
         val tileModifier = Modifier
             .align(Alignment.CenterStart)
-            .size(52.dp)
+            .size(48.dp)
             .shadow(6.dp, WaveShapes.tile, spotColor = Color(0x553B82C4))
             .background(Color.White, WaveShapes.tile)
         if (onBack != null) {
@@ -95,12 +95,13 @@ fun WaveTopBar(
         }
         Text(
             text = title.orEmpty(),
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.titleLarge,
             color = Navy900,
             textAlign = TextAlign.Center,
+            maxLines = 2,
             modifier = Modifier
                 .align(Alignment.Center)
-                .padding(horizontal = 64.dp)
+                .padding(horizontal = 56.dp)
                 .semantics { heading() },
         )
         Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically, content = actions)
@@ -112,7 +113,7 @@ fun WaveTopBar(
 fun TopBarAction(icon: Int, contentDescription: String, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(52.dp)
+            .size(48.dp)
             .shadow(6.dp, WaveShapes.tile, spotColor = Color(0x553B82C4))
             .background(Color.White, WaveShapes.tile),
         contentAlignment = Alignment.Center,

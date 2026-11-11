@@ -108,8 +108,8 @@ fun ScanQrScreen(
         actions = { TopBarAction(R.drawable.ic_help, "What is a signed QR code?", onHelp) },
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Wavey(WaveyMood.QR_PEEK, size = 150.dp, modifier = Modifier.padding(top = Spacing.s))
-            Viewfinder(onScan, Modifier.widthIn(max = 320.dp).fillMaxWidth())
+            Wavey(WaveyMood.QR_PEEK, size = 120.dp, modifier = Modifier.padding(top = Spacing.s))
+            Viewfinder(onScan, Modifier.widthIn(max = 260.dp).fillMaxWidth())
         }
         Text("Scan a Wi-Fi QR code", style = MaterialTheme.typography.titleLarge, color = Navy900)
         Text(

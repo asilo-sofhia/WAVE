@@ -149,7 +149,7 @@ fun DisconnectScreen(
             Text("Disconnect now", style = MaterialTheme.typography.displaySmall, color = Danger)
         }
         Text(
-            "You're connected to \"$ssid\", which looks like a fake network. Anything you send on it could be seen.",
+            "You're connected to \"$ssid\", and it isn't safe. Anything you send on it could be seen.",
             style = MaterialTheme.typography.bodyLarge,
             color = Navy900,
             textAlign = TextAlign.Center,

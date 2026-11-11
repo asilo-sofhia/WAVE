@@ -212,21 +212,35 @@ fun DetailRow(
     valueColor: Color = Navy900,
     monospace: Boolean = false,
     showDivider: Boolean = true,
+    stacked: Boolean = false,
 ) {
     Column(modifier.semantics(mergeDescendants = true) {}) {
+        if (stacked) {
+            Column(Modifier.fillMaxWidth().padding(vertical = Spacing.s)) {
+                Text(label, style = MaterialTheme.typography.bodySmall, color = Slate600)
+                Text(
+                    value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = valueColor,
+                    fontFamily = if (monospace) FontFamily.Monospace else null,
+                )
+            }
+            if (showDivider) HorizontalDivider(color = Divider)
+            return@Column
+        }
         Row(
             Modifier.fillMaxWidth().heightIn(min = MinTouch).padding(vertical = Spacing.s),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(label, style = MaterialTheme.typography.bodyMedium, color = Slate600, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(Spacing.m))
-            Text(
+            FitText(
                 value,
                 style = MaterialTheme.typography.titleSmall,
                 color = valueColor,
                 textAlign = TextAlign.End,
                 fontFamily = if (monospace) FontFamily.Monospace else null,
-                modifier = Modifier.weight(1.3f),
+                modifier = Modifier.weight(1.4f),
             )
         }
         if (showDivider) HorizontalDivider(color = Divider)
@@ -259,7 +273,7 @@ fun TechDetailsToggle(rows: List<Pair<String, String>>, modifier: Modifier = Mod
         AnimatedVisibility(expanded) {
             WaveCard(Modifier.fillMaxWidth().padding(top = Spacing.s)) {
                 rows.forEachIndexed { i, (label, value) ->
-                    DetailRow(label, value, monospace = true, showDivider = i != rows.lastIndex)
+                    DetailRow(label, value, monospace = true, stacked = true, showDivider = i != rows.lastIndex)
                 }
             }
         }

@@ -6,7 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Text
+import com.example.wave.ui.components.FitText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,7 +34,13 @@ fun WaveBottomBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = 
                 selected = tab == selected,
                 onClick = { onSelect(tab) },
                 icon = { Icon(painterResource(tab.icon), contentDescription = null) },
-                label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
+                label = {
+                    FitText(
+                        tab.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (tab == selected) Blue700 else Slate600,
+                    )
+                },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = Blue700,
                     selectedTextColor = Blue700,

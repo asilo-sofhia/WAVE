@@ -63,7 +63,7 @@ object FakeFixtures {
         verdict = Verdict.UNKNOWN,
     )
 
-    val registry = RegistryInfo(source = "Offline registry", updatedAt = "today")
+    val registry = RegistryInfo(source = "offline registry", updatedAt = "today")
 
     const val SAMPLE_QR_PAYLOAD = "WIFI:T:WPA;S:BATSTATEU-ICT;P:********;;SIG:MEUCIQ…"
 
