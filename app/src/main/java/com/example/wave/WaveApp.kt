@@ -67,7 +67,8 @@ fun WaveApp(container: AppContainer) {
                         nav = nav,
                         container = container,
                         startDestination = start,
-                        modifier = Modifier.padding(padding),
+                        // Splash draws edge to edge (its sky runs behind the status bar) and pads itself.
+                        modifier = if (currentRoute == Routes.SPLASH) Modifier else Modifier.padding(padding),
                     )
                 }
             }
