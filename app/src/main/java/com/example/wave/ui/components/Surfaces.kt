@@ -75,7 +75,7 @@ fun WaveCard(
 
 /** Big rounded hero panel with a soft sky gradient (Home / Monitor tops). */
 @Composable
-fun HeroCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun HeroCard(modifier: Modifier = Modifier, padding: Dp = Spacing.l, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = modifier
             .shadow(14.dp, WaveShapes.hero, ambientColor = ShadowTint.copy(alpha = 0.2f), spotColor = ShadowTint.copy(alpha = 0.25f))
@@ -84,7 +84,7 @@ fun HeroCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() 
                 WaveShapes.hero,
             )
             .border(1.5.dp, Color.White.copy(alpha = 0.75f), WaveShapes.hero)
-            .padding(Spacing.l),
+            .padding(padding),
         content = content,
     )
 }

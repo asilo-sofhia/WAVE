@@ -24,9 +24,14 @@ val ScannerNavy = Color(0xFF0B3A6E)
 // Verdicts: always shown with an icon + a word, never color alone.
 val VerifiedFg = Color(0xFF087050)
 val VerifiedBg = Color(0xFFDDF5EA)
-val WarningFg = Color(0xFFA64B00)
-val WarningBg = Color(0xFFFFE9D1)
-val UnknownFg = Color(0xFF556070)
-val UnknownBg = Color(0xFFE9EDF2)
+// Warning = red (mockups 3 and 5). 4.8:1 on its tint.
+val WarningFg = Color(0xFFC42330)
+val WarningBg = Color(0xFFFEE4E8)
+// Unknown / Pending = yellow (amber). 4.9:1 on its tint.
+val UnknownFg = Color(0xFF8F5F00)
+val UnknownBg = Color(0xFFFFF0CF)
+// Neutral gray for non-verdict states: "Not checked", "Skipped", "Not connected", disabled controls.
+val NeutralFg = Color(0xFF556070)
+val NeutralBg = Color(0xFFE9EDF2)
 val Danger = Color(0xFFB3261E)
 val DangerBg = Color(0xFFFCE4E2)

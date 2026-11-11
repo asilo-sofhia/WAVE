@@ -28,8 +28,8 @@ import com.example.wave.ui.theme.Blue700
 import com.example.wave.ui.theme.ButtonHeight
 import com.example.wave.ui.theme.Divider
 import com.example.wave.ui.theme.MinTouch
-import com.example.wave.ui.theme.UnknownBg
-import com.example.wave.ui.theme.UnknownFg
+import com.example.wave.ui.theme.NeutralBg
+import com.example.wave.ui.theme.NeutralFg
 import com.example.wave.ui.theme.WaveShapes
 
 @Composable
@@ -52,8 +52,8 @@ fun PrimaryButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = if (useGradient) Color.Transparent else containerColor,
             contentColor = Color.White,
-            disabledContainerColor = if (loading && useGradient) Color.Transparent else if (loading) containerColor else UnknownBg,
-            disabledContentColor = if (loading) Color.White else UnknownFg,
+            disabledContainerColor = if (loading && useGradient) Color.Transparent else if (loading) containerColor else NeutralBg,
+            disabledContentColor = if (loading) Color.White else NeutralFg,
         ),
         modifier = modifier
             .fillMaxWidth()

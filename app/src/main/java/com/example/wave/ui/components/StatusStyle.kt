@@ -5,6 +5,8 @@ import androidx.compose.ui.graphics.Color
 import com.example.wave.R
 import com.example.wave.model.ExitPathStatus
 import com.example.wave.model.Verdict
+import com.example.wave.ui.theme.NeutralBg
+import com.example.wave.ui.theme.NeutralFg
 import com.example.wave.ui.theme.UnknownBg
 import com.example.wave.ui.theme.UnknownFg
 import com.example.wave.ui.theme.VerifiedBg
@@ -32,4 +34,4 @@ fun ExitPathStatus.style(): StatusStyle = when (this) {
     ExitPathStatus.FAILED -> StatusStyle(WarningFg, WarningBg, R.drawable.ic_warning, "Failed")
 }
 
-val NotCheckedStyle = StatusStyle(UnknownFg, UnknownBg, R.drawable.ic_help, "Not checked")
+val NotCheckedStyle = StatusStyle(NeutralFg, NeutralBg, R.drawable.ic_help, "Not checked")

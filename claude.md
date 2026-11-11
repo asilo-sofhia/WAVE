@@ -15,7 +15,7 @@ Kotlin, Jetpack Compose, Material 3, Navigation Compose, ViewModel + StateFlow. 
 - Mockups in docs/mockups/ are the visual inspiration, not pixel-exact specs.
 - Mascot: Wavey the dolphin. Moods: NORMAL, HAPPY, UNCOMFORTABLE, CURIOUS, BRUISED, QR_PEEK. Until the animated WebPs exist, use placeholder images through one `Wavey(mood)` composable.
 - HAPPY only when Verified AND exit-path check passed.
-- Verdict colors: Verified = blue/green + check icon, Warning = orange + triangle, Unknown/Pending = gray + "?". Never color alone.
+- Verdict colors (as in the mockups): Verified = green + check icon, Warning = red + triangle, Unknown/Pending = yellow (amber) + "?" / clock. Neutral states (not checked, skipped, not connected) = gray. Never color alone.
 - Out of scope: WPA2/3-Enterprise, iOS, accounts/login, background monitoring.
 
 ## Rules

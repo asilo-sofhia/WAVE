@@ -153,8 +153,9 @@ interface LocationPermissionGate { val granted: StateFlow<Boolean>; suspend fun 
 | Blue700 | `#0A4FB0` | Primary button, selected nav |
 | Blue400 | `#3BA3F5` | Decorative accents only (not text) |
 | Verified fg / bg | `#0A7A55` / `#DDF5EA` | ✓ check icon + "Verified" |
-| Warning fg / bg | `#A64B00` / `#FFE9D1` | ⚠ triangle + "Warning" |
-| Unknown/Pending fg / bg | `#556070` / `#E9EDF2` | "?" or clock + "Unknown"/"Pending" |
+| Warning fg / bg | `#C42330` / `#FEE4E8` | ⚠ triangle + "Warning" (red, as in mockups 3 and 5) |
+| Unknown/Pending fg / bg | `#8F5F00` / `#FFF0CF` | "?" or clock + "Unknown"/"Pending" (yellow/amber, as in the mockups) |
+| Neutral fg / bg | `#556070` / `#E9EDF2` | "Not checked", "Skipped", "Not connected", disabled |
 | Danger | `#B3261E` | Disconnect-now heading only, always with icon + text |
 
 All text/background pairs must reach at least 4.5:1, re-checked in M6.
@@ -182,8 +183,8 @@ All text/background pairs must reach at least 4.5:1, re-checked in M6.
 | 1 Splash | "Your Smart Ai Asssistant Hare." → **"Your Wi-Fi safety buddy"** |
 | 2 Home | "BAYSTADU-ICT" → **BATSTATEU-ICT**; remove "Good morning / Stay secure, Alex", the bell, and the gear |
 | 3 Nearby, 5 Monitor | "WPA2 Enterprise" → **WPA2 Personal** (Enterprise is out of scope) |
-| 3 Nearby | Remove "Run Full Security Check"; Unknown chip amber → **gray "?"**; red Warning → **orange + triangle**; colored Wi-Fi tiles get the verdict icon too; "Updated today" green → neutral text |
-| 5 Monitor | Exit path "Pending" orange → **gray + clock + text**; remove the gear |
+| 3 Nearby | Remove "Run Full Security Check"; Warning stays red and Unknown yellow, as in the mockup (changed on Nov 11 at the team's request); every chip keeps its icon + word |
+| 5 Monitor | Pending stays yellow + clock + word (Nov 11 decision); remove the gear |
 | All | No red-vs-green-only signals: every status has an icon and a word |
 
 ## 6. Package structure

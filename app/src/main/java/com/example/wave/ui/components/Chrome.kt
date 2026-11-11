@@ -68,8 +68,8 @@ fun WaveTopBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 68.dp)
-            .padding(horizontal = Spacing.l, vertical = Spacing.s),
+            .heightIn(min = 62.dp)
+            .padding(horizontal = Spacing.l, vertical = 5.dp),
     ) {
         val tileModifier = Modifier
             .align(Alignment.CenterStart)
