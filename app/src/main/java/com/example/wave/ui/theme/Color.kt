@@ -5,6 +5,12 @@ import androidx.compose.ui.graphics.Color
 // Brand / surfaces (see docs/FRONTEND_PLAN.md §5). Every text pair is >= 4.5:1.
 val SkyTop = Color(0xFFE8F5FF)
 val SkyBottom = Color(0xFFC4E5FF)
+// Screen background from mockups 2-5: deeper sky at the top, fading lighter downwards.
+val SkyHigh = Color(0xFFA9DEFC)
+val SkyMidBg = Color(0xFFC9EBFD)
+val SkyLow = Color(0xFFE3F4FD)
+// Brand icon blue on light tiles (>= 3:1 for graphics).
+val BrandIcon = Color(0xFF1683F5)
 val CardSurface = Color(0xFFFBFDFF) // opaque: translucent cards show their own shadow through
 val CardBorder = Color(0x99FFFFFF)
 val Navy900 = Color(0xFF0E1E3F)

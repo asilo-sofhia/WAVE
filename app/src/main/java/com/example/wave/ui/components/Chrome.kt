@@ -29,11 +29,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.wave.R
 import com.example.wave.ui.theme.Navy900
-import com.example.wave.ui.theme.SkyBottom
-import com.example.wave.ui.theme.SkyTop
+import com.example.wave.ui.theme.SkyHigh
+import com.example.wave.ui.theme.SkyLow
+import com.example.wave.ui.theme.SkyMidBg
 import com.example.wave.ui.theme.Spacing
 import com.example.wave.ui.theme.WaveShapes
 
@@ -45,7 +47,7 @@ fun WaveBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(SkyTop, SkyBottom))),
+            .background(Brush.verticalGradient(0f to SkyHigh, 0.45f to SkyMidBg, 1f to SkyLow)),
         content = content,
     )
 }
@@ -62,7 +64,6 @@ fun WaveTopBar(
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    val openDebug = LocalOpenDebugMenu.current
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -81,17 +82,7 @@ fun WaveTopBar(
                 }
             }
         } else {
-            Box(
-                tileModifier.combinedClickable(
-                    onClick = {},
-                    onLongClick = openDebug,
-                    onLongClickLabel = if (openDebug != null) "Open demo menu" else null,
-                    role = Role.Image,
-                ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Image(painterResource(R.drawable.wave_logo), contentDescription = "WAVE logo", modifier = Modifier.size(36.dp))
-            }
+            LogoTile(Modifier.align(Alignment.CenterStart))
         }
         Text(
             text = title.orEmpty(),
@@ -105,6 +96,28 @@ fun WaveTopBar(
                 .semantics { heading() },
         )
         Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically, content = actions)
+    }
+}
+
+/** White rounded tile with the WAVE logo. Long-press opens the demo menu in debug builds. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun LogoTile(modifier: Modifier = Modifier, size: Dp = 48.dp) {
+    val openDebug = LocalOpenDebugMenu.current
+    Box(
+        modifier
+            .size(size)
+            .shadow(8.dp, WaveShapes.tile, spotColor = Color(0x553B82C4))
+            .background(Color.White, WaveShapes.tile)
+            .combinedClickable(
+                onClick = {},
+                onLongClick = openDebug,
+                onLongClickLabel = if (openDebug != null) "Open demo menu" else null,
+                role = Role.Image,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(painterResource(R.drawable.wave_logo), contentDescription = "WAVE logo", modifier = Modifier.size(size * 0.72f))
     }
 }
 

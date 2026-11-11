@@ -52,8 +52,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.layout.onSizeChanged
@@ -76,6 +74,7 @@ import com.example.wave.R
 import com.example.wave.di.AppContainer
 import com.example.wave.model.WaveyMood
 import com.example.wave.ui.components.FitText
+import com.example.wave.ui.components.drawSparkle
 import com.example.wave.ui.components.Wavey
 import com.example.wave.ui.theme.WAVETheme
 import com.example.wave.ui.theme.WaveShapes
@@ -231,8 +230,8 @@ private fun MascotStage(modifier: Modifier) {
                     drawCircle(Color.White.copy(alpha = 0.9f), radius, center)
                 }
             }
-            sparkle(Offset(w * 0.14f, h * 0.36f), w * 0.052f * twinkle, StarBlue, glow = Color(0x553FB8FF))
-            sparkle(Offset(w * 0.86f, h * 0.35f), w * 0.048f * (1.82f - twinkle), Color.White, glow = Color(0x40FFFFFF))
+            drawSparkle(Offset(w * 0.14f, h * 0.36f), w * 0.052f * twinkle, StarBlue, glow = Color(0x553FB8FF))
+            drawSparkle(Offset(w * 0.86f, h * 0.35f), w * 0.048f * (1.82f - twinkle), Color.White, glow = Color(0x40FFFFFF))
         }
         Wavey(
             mood = WaveyMood.NORMAL,
@@ -240,22 +239,6 @@ private fun MascotStage(modifier: Modifier) {
             modifier = Modifier.padding(top = mascotTop),
         )
     }
-}
-
-/** Four-point concave sparkle, like the stars in the mockup. */
-private fun DrawScope.sparkle(center: Offset, r: Float, color: Color, glow: Color) {
-    drawCircle(Brush.radialGradient(listOf(glow, Color.Transparent), center, r * 1.6f), r * 1.6f, center)
-    val k = r * 0.27f
-    val (cx, cy) = center
-    val path = Path().apply {
-        moveTo(cx, cy - r)
-        quadraticTo(cx + k, cy - k, cx + r, cy)
-        quadraticTo(cx + k, cy + k, cx, cy + r)
-        quadraticTo(cx - k, cy + k, cx - r, cy)
-        quadraticTo(cx - k, cy - k, cx, cy - r)
-        close()
-    }
-    drawPath(path, color)
 }
 
 // ---- Title ----

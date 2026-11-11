@@ -31,10 +31,10 @@ object Routes {
 }
 
 enum class Tab(val route: String, val label: String, val icon: Int) {
-    HOME(Routes.HOME, "Home", R.drawable.ic_home),
+    HOME(Routes.HOME, "Home", R.drawable.ic_home_outline),
     NETWORKS(Routes.NEARBY, "Networks", R.drawable.ic_wifi),
-    SCAN_QR(Routes.SCAN_QR, "Scan QR", R.drawable.ic_qr),
-    MONITOR(Routes.MONITOR, "Monitor", R.drawable.ic_monitor),
+    SCAN_QR(Routes.SCAN_QR, "Scan QR", R.drawable.ic_grid),
+    MONITOR(Routes.MONITOR, "Monitor", R.drawable.ic_monitor_heart),
 }
 
 fun parseReasons(raw: String?): List<WarningReason> =

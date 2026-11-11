@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -171,14 +172,14 @@ fun ToolRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(role = Role.Button, onClick = onClick)
-                .heightIn(min = 64.dp)
+                .heightIn(min = 76.dp)
                 .padding(horizontal = Spacing.l, vertical = Spacing.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconTile(icon, tint = Blue400, background = BlueTint)
+            BrandIconTile(icon)
             Spacer(Modifier.width(Spacing.l))
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, color = Navy900)
+                Text(title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = Navy900)
                 if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Slate600)
             }
             Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Slate600)

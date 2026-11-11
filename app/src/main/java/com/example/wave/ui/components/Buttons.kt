@@ -17,7 +17,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.example.wave.ui.theme.Blue700
@@ -37,18 +41,32 @@ fun PrimaryButton(
     loading: Boolean = false,
     enabled: Boolean = true,
     containerColor: Color = Blue700,
+    /** Optional gradient fill (e.g. the mockup's deep-blue "Check Wi-Fi"); ignored when disabled. */
+    gradient: Brush? = null,
 ) {
+    val useGradient = gradient != null && enabled
     Button(
         onClick = onClick,
         enabled = enabled && !loading,
         shape = WaveShapes.pill,
         colors = ButtonDefaults.buttonColors(
-            containerColor = containerColor,
+            containerColor = if (useGradient) Color.Transparent else containerColor,
             contentColor = Color.White,
-            disabledContainerColor = if (loading) containerColor else UnknownBg,
+            disabledContainerColor = if (loading && useGradient) Color.Transparent else if (loading) containerColor else UnknownBg,
             disabledContentColor = if (loading) Color.White else UnknownFg,
         ),
-        modifier = modifier.fillMaxWidth().heightIn(min = ButtonHeight),
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = ButtonHeight)
+            .then(
+                if (useGradient) {
+                    Modifier
+                        .shadow(10.dp, WaveShapes.pill, spotColor = Color(0xFF0A4AA0))
+                        .background(gradient!!, WaveShapes.pill)
+                } else {
+                    Modifier
+                },
+            ),
     ) {
         if (loading) {
             CircularProgressIndicator(color = Color.White, strokeWidth = 2.5.dp, modifier = Modifier.size(20.dp))
@@ -57,7 +75,7 @@ fun PrimaryButton(
             Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
         }
-        Text(text, style = MaterialTheme.typography.labelLarge)
+        Text(text, style = if (gradient != null) MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.labelLarge)
     }
 }
 
