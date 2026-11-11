@@ -178,7 +178,7 @@ fun NearbyScreen(
                 .padding(horizontal = Spacing.gutter),
         ) {
             SummaryCard(state, onRefresh)
-            Spacer(Modifier.height(Spacing.m))
+            Spacer(Modifier.height(Spacing.s))
             when (state) {
                 NearbyUiState.NeedsPermission -> PermissionCard(onNeedPermission)
                 NearbyUiState.Empty -> {
@@ -198,15 +198,15 @@ fun NearbyScreen(
                     RegistryLine(state.result.registry)
                     SectionHeader(
                         "Available networks",
-                        Modifier.padding(top = Spacing.s),
+                        Modifier.padding(top = Spacing.xs),
                         trailing = "${state.result.networks.size} results",
                     )
-                    Spacer(Modifier.height(Spacing.s))
+                    Spacer(Modifier.height(Spacing.xs))
                     // The page itself never scrolls; on very short screens only this list does.
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.m),
-                        contentPadding = PaddingValues(top = 2.dp, bottom = Spacing.m),
+                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                        contentPadding = PaddingValues(top = 2.dp, bottom = Spacing.s),
                     ) {
                         items(state.result.networks, key = { it.bssid }) { network ->
                             NetworkRow(
@@ -237,14 +237,14 @@ private fun SummaryCard(state: NearbyUiState, onRefresh: () -> Unit) {
             .fillMaxWidth()
             .background(Brush.horizontalGradient(listOf(Color(0x80FFFFFF), Color(0x4DFFFFFF))), shape)
             .border(1.5.dp, Color.White.copy(alpha = 0.85f), shape)
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(horizontal = 14.dp, vertical = 9.dp)
             .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // White circle with a soft halo ring and the blue Wi-Fi mark.
         Box(
             Modifier
-                .size(64.dp)
+                .size(58.dp)
                 .background(Color.White.copy(alpha = 0.45f), CircleShape)
                 .padding(5.dp)
                 .shadow(6.dp, CircleShape, spotColor = Color(0x553B82C4))

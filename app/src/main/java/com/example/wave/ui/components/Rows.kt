@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -65,13 +66,14 @@ import com.example.wave.ui.theme.Spacing
 import com.example.wave.ui.theme.WAVETheme
 import com.example.wave.ui.theme.WarningBg
 import com.example.wave.ui.theme.WarningFg
+import com.example.wave.ui.theme.WaveShapes
 
 /**
- * One network in a list, laid out like mockup 3: tinted Wi-Fi tile, bold name with the verdict chip
- * beside it, "security · signal" underneath, optional note line, signal bars and a chevron.
- * On narrow phones the chip wraps under the name. TalkBack reads the row as one item.
+ * One network in a list, laid out exactly like the mockup 3 "Available networks" rows:
+ * tinted Wi-Fi tile | bold name + verdict chip on ONE line | "security · signal" | optional note
+ * | signal bars | chevron. The chip never wraps: on narrow phones a long name shrinks a little instead.
+ * TalkBack reads the row as one item.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NetworkRow(
     network: NetworkUi,
@@ -80,53 +82,83 @@ fun NetworkRow(
     note: String? = network.reasons.firstOrNull()?.title,
 ) {
     val style = network.verdict.style()
-    WaveCard(modifier = modifier.fillMaxWidth(), padding = 0.dp, color = Color.White, shape = RoundedCornerShape(22.dp)) {
+    WaveCard(modifier = modifier.fillMaxWidth(), padding = 0.dp, color = Color.White, shape = RoundedCornerShape(20.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClickLabel = "Open details", role = Role.Button, onClick = onClick)
-                .heightIn(min = 68.dp)
-                .padding(horizontal = 14.dp, vertical = 11.dp),
+                .heightIn(min = 62.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 Modifier
-                    .size(48.dp)
-                    .background(Brush.verticalGradient(listOf(style.bg.copy(alpha = 0.7f), style.bg)), RoundedCornerShape(14.dp)),
+                    .size(46.dp)
+                    .background(Brush.verticalGradient(listOf(style.bg.copy(alpha = 0.65f), style.bg)), RoundedCornerShape(13.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(painterResource(R.drawable.ic_wifi), null, tint = style.fg, modifier = Modifier.size(26.dp))
+                Icon(painterResource(R.drawable.ic_wifi), null, tint = style.fg, modifier = Modifier.size(24.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    itemVerticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FitText(
                         network.ssid,
-                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.5.sp, fontWeight = FontWeight.ExtraBold),
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp, fontWeight = FontWeight.ExtraBold),
                         color = Navy900,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    VerdictChip(network.verdict, compact = true)
+                    Spacer(Modifier.width(7.dp))
+                    RowChip(style)
                 }
+                Spacer(Modifier.height(2.dp))
                 Text(
                     "${network.security.label} · ${signalQuality(network.signal).label}",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 18.sp),
                     color = Slate600,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (note != null) {
-                    FitText(note, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp), color = WarningFg)
+                    FitText(
+                        note,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
+                        color = WarningFg,
+                    )
                 }
             }
             Spacer(Modifier.width(Spacing.s))
             SignalBars(network.signal, showLabel = false)
-            Spacer(Modifier.width(6.dp))
-            Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Slate600)
+            Spacer(Modifier.width(4.dp))
+            Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Slate600, modifier = Modifier.size(22.dp))
         }
+    }
+}
+
+/** The small pill beside the network name: icon + word, tinted by verdict. */
+@Composable
+private fun RowChip(style: StatusStyle) {
+    Row(
+        Modifier
+            .background(style.bg, WaveShapes.pill)
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Outlined glyphs like the mockup chips (check stays a check).
+        val icon = when (style.icon) {
+            R.drawable.ic_warning -> R.drawable.ic_warning_outline
+            R.drawable.ic_help -> R.drawable.ic_help_outline
+            else -> style.icon
+        }
+        Icon(painterResource(icon), contentDescription = null, tint = style.fg, modifier = Modifier.size(13.dp))
+        Spacer(Modifier.width(3.dp))
+        Text(
+            style.label,
+            style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold),
+            color = style.fg,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 
@@ -140,15 +172,15 @@ fun SignalBars(dBm: Int, modifier: Modifier = Modifier, showLabel: Boolean = tru
     ) {
         Canvas(
             Modifier
-                .size(width = 22.dp, height = 20.dp)
+                .size(width = 20.dp, height = 18.dp)
                 .clearAndSetSemantics { contentDescription = "Signal ${quality.label.lowercase()}" },
         ) {
-            val barW = size.width / 6f
+            val barW = size.width / 7f
             val gap = (size.width - barW * 4) / 3f
             for (i in 0 until 4) {
                 val h = size.height * (0.35f + 0.65f * (i + 1) / 4f)
                 drawRoundRect(
-                    color = if (i < quality.bars) Color(0xFF4A5A85) else Color(0xFFCBD3E3),
+                    color = if (i < quality.bars) Color(0xFF5A6A96) else Color(0xFFD3DAE8),
                     topLeft = Offset(i * (barW + gap), size.height - h),
                     size = Size(barW, h),
                     cornerRadius = CornerRadius(barW / 2),
