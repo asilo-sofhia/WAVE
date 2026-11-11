@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.wave.R
+import com.example.wave.ui.theme.BrandIcon
 import com.example.wave.ui.theme.Navy900
 import com.example.wave.ui.theme.SkyHigh
 import com.example.wave.ui.theme.SkyLow
@@ -78,7 +79,7 @@ fun WaveTopBar(
         if (onBack != null) {
             Box(tileModifier, contentAlignment = Alignment.Center) {
                 IconButton(onClick = onBack) {
-                    Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back", tint = Navy900)
+                    Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back", tint = BrandIcon)
                 }
             }
         } else {
@@ -123,7 +124,7 @@ fun LogoTile(modifier: Modifier = Modifier, size: Dp = 48.dp) {
 
 /** Square white action button for the top bar (e.g. refresh, help). */
 @Composable
-fun TopBarAction(icon: Int, contentDescription: String, onClick: () -> Unit) {
+fun TopBarAction(icon: Int, contentDescription: String, onClick: () -> Unit, tint: Color = Navy900) {
     Box(
         Modifier
             .size(48.dp)
@@ -132,7 +133,7 @@ fun TopBarAction(icon: Int, contentDescription: String, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         IconButton(onClick = onClick) {
-            Icon(painterResource(icon), contentDescription = contentDescription, tint = Navy900)
+            Icon(painterResource(icon), contentDescription = contentDescription, tint = tint)
         }
     }
 }

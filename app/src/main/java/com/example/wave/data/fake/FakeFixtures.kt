@@ -16,7 +16,7 @@ object FakeFixtures {
         bssid = "8C:3B:AD:72:10:4F",
         security = SecurityType.WPA2_PERSONAL,
         band = WifiBand.GHZ_5,
-        signal = -54,
+        signal = -50,
         verdict = Verdict.VERIFIED,
     )
 
@@ -25,22 +25,21 @@ object FakeFixtures {
         bssid = "8C:3B:AD:72:22:91",
         security = SecurityType.WPA3_PERSONAL,
         band = WifiBand.GHZ_5,
-        signal = -70,
+        signal = -74,
         verdict = Verdict.VERIFIED,
     )
 
-    /** Evil twin: same name as [campus], locally administered BSSID, open, suspiciously strong. */
+    /** Evil twin (mockup 3): same name as [campus], locally administered BSSID, signal unusually strong here. */
     val twin = NetworkUi(
         ssid = "BATSTATEU-ICT",
         bssid = "02:1A:7F:33:9C:01",
-        security = SecurityType.OPEN,
+        security = SecurityType.WPA2_PERSONAL,
         band = WifiBand.GHZ_2_4,
-        signal = -38,
+        signal = -58,
         verdict = Verdict.WARNING,
         reasons = listOf(
             WarningReason.UNREGISTERED_BSSID,
             WarningReason.LOCALLY_ADMINISTERED,
-            WarningReason.SECURITY_MISMATCH,
             WarningReason.RSSI_OUT_OF_RANGE,
         ),
     )
@@ -50,7 +49,7 @@ object FakeFixtures {
         bssid = "A4:2B:B0:11:5E:7C",
         security = SecurityType.WPA2_PERSONAL,
         band = WifiBand.GHZ_2_4,
-        signal = -63,
+        signal = -66,
         verdict = Verdict.UNKNOWN,
     )
 

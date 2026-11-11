@@ -15,29 +15,30 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.wave.model.ExitPathStatus
 import com.example.wave.model.Verdict
 import com.example.wave.ui.theme.WAVETheme
 import com.example.wave.ui.theme.WaveShapes
 
 @Composable
-fun StatusPill(style: StatusStyle, modifier: Modifier = Modifier, label: String = style.label) {
+fun StatusPill(style: StatusStyle, modifier: Modifier = Modifier, label: String = style.label, compact: Boolean = false) {
     Row(
         modifier = modifier
             .background(style.bg, WaveShapes.pill)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = if (compact) 8.dp else 10.dp, vertical = if (compact) 2.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 4.dp),
     ) {
         Icon(
             painter = painterResource(style.icon),
             contentDescription = null, // the label says it
             tint = style.fg,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size(if (compact) 14.dp else 16.dp),
         )
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
+            style = if (compact) MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp) else MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
             color = style.fg,
         )
@@ -45,8 +46,8 @@ fun StatusPill(style: StatusStyle, modifier: Modifier = Modifier, label: String 
 }
 
 @Composable
-fun VerdictChip(verdict: Verdict, modifier: Modifier = Modifier) =
-    StatusPill(verdict.style(), modifier)
+fun VerdictChip(verdict: Verdict, modifier: Modifier = Modifier, compact: Boolean = false) =
+    StatusPill(verdict.style(), modifier, compact = compact)
 
 @Composable
 fun ExitPathChip(status: ExitPathStatus, modifier: Modifier = Modifier) =

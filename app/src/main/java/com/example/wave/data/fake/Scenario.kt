@@ -54,7 +54,8 @@ enum class Scenario(
 
 /** Demo-only state shared by the Fake* implementations and the debug menu. */
 class ScenarioStore(initialLocationGranted: Boolean, private val onLocationChanged: (Boolean) -> Unit) {
-    private val _scenario = MutableStateFlow(Scenario.ALL_SAFE)
+    // Starts on the mockup 3 list so Verified, Warning and Unknown rows are all visible.
+    private val _scenario = MutableStateFlow(Scenario.TWIN_NEARBY)
     val scenario: StateFlow<Scenario> = _scenario.asStateFlow()
 
     /** Forces a specific QR result regardless of scenario (null = use the scenario's). */

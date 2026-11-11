@@ -36,6 +36,7 @@ data class ScanResult(
 
 enum class SignalQuality(val label: String, val bars: Int) {
     EXCELLENT("Excellent", 4),
+    STRONG("Strong", 4),
     GOOD("Good", 3),
     FAIR("Fair", 2),
     WEAK("Weak", 1),
@@ -43,8 +44,9 @@ enum class SignalQuality(val label: String, val bars: Int) {
 
 fun signalQuality(dBm: Int): SignalQuality = when {
     dBm >= -55 -> SignalQuality.EXCELLENT
-    dBm >= -67 -> SignalQuality.GOOD
-    dBm >= -75 -> SignalQuality.FAIR
+    dBm >= -62 -> SignalQuality.STRONG
+    dBm >= -70 -> SignalQuality.GOOD
+    dBm >= -78 -> SignalQuality.FAIR
     else -> SignalQuality.WEAK
 }
 

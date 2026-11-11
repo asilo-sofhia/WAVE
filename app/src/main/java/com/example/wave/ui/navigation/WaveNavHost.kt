@@ -62,7 +62,6 @@ fun WaveNavHost(
                 container = container,
                 onOpenNetwork = { nav.navigate(Routes.detail(it)) },
                 onNeedPermission = { nav.navigate(Routes.PERMISSION) },
-                onOpenTab = { nav.navigateToTab(it) },
             )
         }
         composable(
@@ -76,7 +75,10 @@ fun WaveNavHost(
             )
         }
         composable(Routes.SCAN_QR) {
-            ScanQrRoute(onScanned = { nav.navigate(Routes.qrResult(it)) })
+            ScanQrRoute(
+                onScanned = { nav.navigate(Routes.qrResult(it)) },
+                onBack = { nav.navigateToTab(Tab.HOME) },
+            )
         }
         composable(
             Routes.QR_RESULT,

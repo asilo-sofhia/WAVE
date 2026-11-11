@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +35,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -46,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.wave.R
 import com.example.wave.data.fake.FakeFixtures
 import com.example.wave.model.NetworkUi
@@ -63,36 +66,38 @@ import com.example.wave.ui.theme.WAVETheme
 import com.example.wave.ui.theme.WarningBg
 import com.example.wave.ui.theme.WarningFg
 
-/** One network in a list. TalkBack reads it as one item: name, verdict, security, first reason, signal. */
+/**
+ * One network in a list, laid out like mockup 3: tinted Wi-Fi tile, bold name with the verdict chip
+ * beside it, "security · signal" underneath, optional note line, signal bars and a chevron.
+ * On narrow phones the chip wraps under the name. TalkBack reads the row as one item.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun NetworkRow(network: NetworkUi, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun NetworkRow(
+    network: NetworkUi,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    note: String? = network.reasons.firstOrNull()?.title,
+) {
     val style = network.verdict.style()
-    WaveCard(modifier = modifier.fillMaxWidth(), padding = 0.dp) {
+    WaveCard(modifier = modifier.fillMaxWidth(), padding = 0.dp, color = Color.White, shape = RoundedCornerShape(22.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClickLabel = "Open details", role = Role.Button, onClick = onClick)
-                .heightIn(min = 72.dp)
-                .padding(horizontal = Spacing.l, vertical = Spacing.m),
+                .heightIn(min = 68.dp)
+                .padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box {
-                IconTile(R.drawable.ic_wifi, tint = style.fg, background = style.bg)
-                // Small verdict glyph on the tile, so the tile isn't color-only either.
-                Box(
-                    Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = 4.dp, y = 4.dp)
-                        .size(20.dp)
-                        .background(Color.White, CircleShape)
-                        .padding(2.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(painterResource(style.icon), null, tint = style.fg, modifier = Modifier.size(14.dp))
-                }
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .background(Brush.verticalGradient(listOf(style.bg.copy(alpha = 0.7f), style.bg)), RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(painterResource(R.drawable.ic_wifi), null, tint = style.fg, modifier = Modifier.size(26.dp))
             }
-            Spacer(Modifier.width(Spacing.m))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(Spacing.s),
@@ -101,32 +106,33 @@ fun NetworkRow(network: NetworkUi, onClick: () -> Unit, modifier: Modifier = Mod
                 ) {
                     Text(
                         network.ssid,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.5.sp, fontWeight = FontWeight.ExtraBold),
                         color = Navy900,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    VerdictChip(network.verdict)
+                    VerdictChip(network.verdict, compact = true)
                 }
                 Text(
-                    "${network.security.label} · ${network.band.label}",
+                    "${network.security.label} · ${signalQuality(network.signal).label}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Slate600,
                 )
-                network.reasons.firstOrNull()?.let {
-                    Text(it.title, style = MaterialTheme.typography.bodyMedium, color = WarningFg)
+                if (note != null) {
+                    FitText(note, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp), color = WarningFg)
                 }
             }
             Spacer(Modifier.width(Spacing.s))
-            SignalBars(network.signal)
+            SignalBars(network.signal, showLabel = false)
+            Spacer(Modifier.width(6.dp))
             Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Slate600)
         }
     }
 }
 
-/** Four bars + a word (Excellent/Good/Fair/Weak). */
+/** Four bars, optionally with the word (Excellent/Strong/Good/Fair/Weak) underneath. */
 @Composable
-fun SignalBars(dBm: Int, modifier: Modifier = Modifier) {
+fun SignalBars(dBm: Int, modifier: Modifier = Modifier, showLabel: Boolean = true) {
     val quality = signalQuality(dBm)
     Column(
         modifier = modifier.semantics(mergeDescendants = true) {},
@@ -134,7 +140,7 @@ fun SignalBars(dBm: Int, modifier: Modifier = Modifier) {
     ) {
         Canvas(
             Modifier
-                .size(width = 22.dp, height = 18.dp)
+                .size(width = 22.dp, height = 20.dp)
                 .clearAndSetSemantics { contentDescription = "Signal ${quality.label.lowercase()}" },
         ) {
             val barW = size.width / 6f
@@ -142,19 +148,21 @@ fun SignalBars(dBm: Int, modifier: Modifier = Modifier) {
             for (i in 0 until 4) {
                 val h = size.height * (0.35f + 0.65f * (i + 1) / 4f)
                 drawRoundRect(
-                    color = if (i < quality.bars) Navy900.copy(alpha = 0.75f) else Divider,
+                    color = if (i < quality.bars) Color(0xFF4A5A85) else Color(0xFFCBD3E3),
                     topLeft = Offset(i * (barW + gap), size.height - h),
                     size = Size(barW, h),
                     cornerRadius = CornerRadius(barW / 2),
                 )
             }
         }
-        Text(
-            quality.label,
-            style = MaterialTheme.typography.labelSmall,
-            color = Slate600,
-            modifier = Modifier.clearAndSetSemantics {},
-        )
+        if (showLabel) {
+            Text(
+                quality.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = Slate600,
+                modifier = Modifier.clearAndSetSemantics {},
+            )
+        }
     }
 }
 
