@@ -91,18 +91,24 @@ Each screen has its own `sealed interface XUiState` (for example `NearbyUiState.
 
 ## 3. Fake data layer
 
+As built (`app/src/main/java/com/example/wave/data/Repositories.kt`). Names to lock with the backend team on Nov 13:
+
 ```kotlin
 interface ScanRepository {
-    val connection: StateFlow<NetworkUi?>          // current Wi-Fi, null = not connected
+    val connection: StateFlow<NetworkUi?>          // current Wi-Fi + verdict, null = not on Wi-Fi
     suspend fun scanNearby(): ScanResult
+    suspend fun checkConnection(): NetworkUi?      // re-read + re-verify current connection (Home "Check Wi-Fi")
+    fun findNetwork(bssid: String): NetworkUi?     // from latest scan or connection (Network detail)
 }
 interface QrVerifier { suspend fun verify(payload: String): QrVerification }
 interface ExitPathChecker { fun check(network: NetworkUi): Flow<ExitPathStatus> } // PENDING, then PASSED/FAILED
+interface LocationPermissionGate { val granted: StateFlow<Boolean>; suspend fun request(): Boolean }
 ```
 
 - `Fake*` implementations read the active `Scenario` from `ScenarioStore` (a `MutableStateFlow`) and add a configurable delay (default 1.2 s) so the loading states show up.
-- `AppContainer` (manual DI, created in `MainActivity`) holds the three interfaces. Swapping to real backend = changing 3 lines there. No Hilt.
-- Location permission is faked through `ScenarioStore.locationGranted` (see Q9).
+- `AppContainer` (manual DI, held by `WaveApplication` so demo state survives rotation) holds the four interfaces. Swapping to the real backend = changing 4 lines there. No Hilt.
+- `AppContainer.demo` exposes the `ScenarioStore` to the debug menu and to one demo hook (Disconnect-now's "I've disconnected"). It becomes `null` when real implementations are in.
+- Location permission is faked through `FakeLocationPermissionGate` (Q9).
 
 | Scenario | Nearby list | Current connection | Exit path | QR scan |
 |---|---|---|---|---|
@@ -120,10 +126,10 @@ interface ExitPathChecker { fun check(network: NetworkUi): Flow<ExitPathStatus> 
 
 ## 4. Mascot assets
 
-| File (in `app/assets/mascot/`) | Looks like | Maps to |
+| File (in `assets/mascot/`) | Looks like | Maps to |
 |---|---|---|
 | `Base_Mascot.png` | Open eyes, wavy smile, standing | **NORMAL** |
-| `Calm_Mascot.png` | Closed happy eyes, tongue out | **HAPPY** (see Q2) |
+| `Calm_Mascot.png` | Closed happy eyes, tongue out | **HAPPY** (decided, Q2) |
 
 **Missing:** UNCOMFORTABLE, CURIOUS, BRUISED, QR_PEEK.
 
@@ -229,7 +235,25 @@ Every screen is split into a stateful `XRoute(viewModel)` and a stateless `XScre
 - **Glass look:** real blur isn't available below API 31, so we fake it with translucent cards and soft shadows.
 - **Disconnect:** Android 10+ apps can't disconnect Wi-Fi themselves, so the button opens the system Wi-Fi panel.
 
-**Open questions for you**
+**Decisions (Nov 11; recommended option taken for every question, change any of them by saying so)**
+
+| # | Decision |
+|---|---|
+| 1 | Mockups and mascot moved to root `docs/mockups/` and `assets/mascot/` (matches CLAUDE.md) |
+| 2 | `Calm_Mascot` = HAPPY. Idle Home uses NORMAL (`Base_Mascot`). QR_PEEK placeholder uses the calm face, as in mockup 4 |
+| 3 | Still open: who draws the 4 missing moods + animated WebP, and when |
+| 4 | Icons: 22 hand-copied Material vector XMLs in `res/drawable/ic_*.xml`, no icons dependency |
+| 5 | Font: system sans |
+| 6 | Gear and bell removed; the logo's long-press opens the debug menu |
+| 7 | EXPIRED/BAD_SIGNATURE = Warning; UNSIGNED/UNKNOWN_KEY/MALFORMED = Unknown |
+| 8 | Splash on first launch only (SharedPreferences), resettable from the debug menu |
+| 9 | Location permission fully faked this phase |
+| 10 | Verified detail has one action: "Connect in Wi-Fi settings" (opens the system Wi-Fi panel). QR VALID does the same |
+| 11 | `git init` done, small commits on `master`, no remote |
+| 12 | Light theme only |
+| 13 | Package stays `com.example.wave` |
+
+**Original open questions**
 1. **Folder paths:** mockups/mascot live under `app/docs` and `app/assets`, but CLAUDE.md says root `docs/` and `assets/`. Move them to root (I'll save this plan at root `docs/`), or update CLAUDE.md?
 2. **Calm_Mascot:** HAPPY, or NORMAL? Mockup 2 uses the calm face for the idle "ready to scan" state, which by our rule is NORMAL.
 3. **Missing moods:** who draws UNCOMFORTABLE, CURIOUS, BRUISED, QR_PEEK (and the animated WebPs), and by when?
