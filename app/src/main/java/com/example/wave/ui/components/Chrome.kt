@@ -100,7 +100,10 @@ fun WaveTopBar(
     }
 }
 
-/** White rounded tile with the WAVE logo. Long-press opens the demo menu in debug builds. */
+/**
+ * The WAVE logo on a transparent background (no tile), sitting directly on the sky.
+ * Keeps a [size] box so it stays a >= 48dp target. Long-press opens the demo menu in debug builds.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LogoTile(modifier: Modifier = Modifier, size: Dp = 48.dp) {
@@ -108,8 +111,6 @@ fun LogoTile(modifier: Modifier = Modifier, size: Dp = 48.dp) {
     Box(
         modifier
             .size(size)
-            .shadow(8.dp, WaveShapes.tile, spotColor = Color(0x553B82C4))
-            .background(Color.White, WaveShapes.tile)
             .combinedClickable(
                 onClick = {},
                 onLongClick = openDebug,
@@ -118,7 +119,7 @@ fun LogoTile(modifier: Modifier = Modifier, size: Dp = 48.dp) {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Image(painterResource(R.drawable.wave_logo), contentDescription = "WAVE logo", modifier = Modifier.size(size * 0.72f))
+        Image(painterResource(R.drawable.wave_logo), contentDescription = "WAVE logo", modifier = Modifier.size(size * 0.92f))
     }
 }
 
