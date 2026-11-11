@@ -90,7 +90,7 @@ fun WaveTopBar(
                 ),
                 contentAlignment = Alignment.Center,
             ) {
-                Image(painterResource(R.drawable.ic_wave_logo), contentDescription = "WAVE logo", modifier = Modifier.size(36.dp))
+                Image(painterResource(R.drawable.wave_logo), contentDescription = "WAVE logo", modifier = Modifier.size(36.dp))
             }
         }
         Text(
