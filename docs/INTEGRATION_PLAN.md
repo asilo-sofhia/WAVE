@@ -52,9 +52,19 @@ data class ScanObservation(
     val band: WifiBand?,         // null if frequency is outside 2.4/5/6 GHz
     val channel: Int?,           // null if it can't be derived from the frequency
     val frequencyMhz: Int,
+    val channelWidthMhz: Int?,   // 🆕 (Nov 13) ScanResult.channelWidth, shown on Network details
+    val wifiStandard: WifiStandard?, // 🆕 (Nov 13) ScanResult.getWifiStandard(), API 30+; null on Android 10
     val rssi: Int,               // dBm
     val timestampMillis: Long,   // wall-clock time of the reading
 )
+
+// ✅ Already built (Nov 13, model/NetworkMetrics.kt): NetworkUi.metrics and NetworkUi.checks.
+// The real classifier MUST fill both, so Network details can show every reading and every check:
+//   metrics = NetworkMetrics(frequencyMhz, channel, channelWidthMhz, wifiStandard, capabilities, seenAtMillis)
+//   checks  = one VerdictCheck per CheckKind (NETWORK_NAME, ACCESS_POINT, HARDWARE_ADDRESS, SECURITY, SIGNAL),
+//             outcome PASSED / FAILED / UNKNOWN / SKIPPED + one plain sentence (measured vs. registry).
+//   Rule (tested in NetworkChecksTest on the fakes): FAILED checks == reasons; any FAILED -> WARNING,
+//   else any UNKNOWN -> UNKNOWN, else VERIFIED.
 
 // 🆕 model/Registry.kt. CONTRACT.md §2, field for field. Plain Kotlin: the @Serializable DTOs live in
 // data/registry/ (lane 3) and map to these, so model/ never depends on a JSON library.

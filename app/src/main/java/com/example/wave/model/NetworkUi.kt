@@ -24,6 +24,10 @@ data class NetworkUi(
     val signal: Int,
     val verdict: Verdict,
     val reasons: List<WarningReason> = emptyList(),
+    /** Radio readings from the scan (available before connecting). Null when not measured. */
+    val metrics: NetworkMetrics? = null,
+    /** Every check behind [verdict], passed or not. Empty when no checks ran. */
+    val checks: List<VerdictCheck> = emptyList(),
 )
 
 data class RegistryInfo(val source: String, val updatedAt: String)

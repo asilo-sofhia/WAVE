@@ -27,13 +27,21 @@ class FakeScanRepository(
             if (disconnected) null else scenario.connection
         }.stateIn(scope, SharingStarted.Eagerly, store.scenario.value.connection)
 
+    /** Latest scan, with "last seen" times. Kept with its scenario so a scenario switch never shows stale data. */
+    @Volatile private var lastScan: Pair<Scenario, ScanResult>? = null
+
     override suspend fun scanNearby(): ScanResult {
         delay(store.delayMs.value)
+        val scenario = store.scenario.value
+        val now = System.currentTimeMillis()
         return ScanResult(
-            networks = store.scenario.value.nearby, // curated order: the twin sits right under the real one
+            // Curated order: the twin sits right under the real one. Weaker APs were heard a little earlier.
+            networks = scenario.nearby.map { n ->
+                n.copy(metrics = n.metrics?.copy(seenAtMillis = now - (-n.signal - 40) * 100L))
+            },
             registry = FakeFixtures.registry,
-            scannedAtMillis = System.currentTimeMillis(),
-        )
+            scannedAtMillis = now,
+        ).also { lastScan = scenario to it }
     }
 
     override suspend fun checkConnection(): NetworkUi? {
@@ -41,8 +49,11 @@ class FakeScanRepository(
         return connection.value
     }
 
-    override fun findNetwork(bssid: String): NetworkUi? =
-        (store.scenario.value.nearby + listOfNotNull(connection.value)).firstOrNull { it.bssid == bssid }
+    override fun findNetwork(bssid: String): NetworkUi? {
+        val scenario = store.scenario.value
+        val scanned = lastScan?.takeIf { it.first == scenario }?.second?.networks.orEmpty()
+        return (scanned + scenario.nearby + listOfNotNull(connection.value)).firstOrNull { it.bssid == bssid }
+    }
 }
 
 class FakeQrVerifier(private val store: ScenarioStore) : QrVerifier {
