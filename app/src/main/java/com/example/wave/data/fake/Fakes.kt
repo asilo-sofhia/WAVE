@@ -49,6 +49,15 @@ class FakeScanRepository(
         return connection.value
     }
 
+    override fun accessPointsOf(network: NetworkUi): List<NetworkUi> {
+        val scenario = store.scenario.value
+        val scanned = lastScan?.takeIf { it.first == scenario }?.second?.networks.orEmpty()
+        return (scanned + scenario.nearby + listOfNotNull(connection.value))
+            .filter { it.ssid == network.ssid }
+            .distinctBy { it.bssid }
+            .sortedWith(compareBy({ it.verdict.ordinal }, { -it.signal }))
+    }
+
     override fun findNetwork(bssid: String): NetworkUi? {
         val scenario = store.scenario.value
         val scanned = lastScan?.takeIf { it.first == scenario }?.second?.networks.orEmpty()

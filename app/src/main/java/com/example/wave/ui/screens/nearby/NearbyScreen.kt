@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -56,6 +57,7 @@ import com.example.wave.data.LocationPermissionGate
 import com.example.wave.data.ScanRepository
 import com.example.wave.data.fake.FakeFixtures
 import com.example.wave.di.AppContainer
+import com.example.wave.domain.RegistryClassifier
 import com.example.wave.model.NetworkUi
 import com.example.wave.model.RegistryInfo
 import com.example.wave.model.ScanResult
@@ -126,6 +128,20 @@ class NearbyViewModel(
         }
     }
 }
+
+/** One list row: the strongest access point stands for every access point in [accessPoints]. */
+data class NearbyRow(val network: NetworkUi, val accessPoints: List<NetworkUi>)
+
+/**
+ * One row per network instead of per radio: a router's 2.4/5 GHz radios or mesh nodes collapse into one row.
+ * Grouped by name + verdict + security, so an evil twin (different verdict) or a same-name network with other
+ * security always keeps its own row. Hidden networks are never merged. Keeps the list order.
+ */
+fun groupRows(networks: List<NetworkUi>): List<NearbyRow> =
+    networks
+        .groupBy { n -> if (n.ssid == RegistryClassifier.HIDDEN_NAME) n.bssid else "${n.ssid}|${n.verdict}|${n.security}" }
+        .values
+        .map { aps -> aps.sortedByDescending { it.signal }.let { NearbyRow(it.first(), it) } }
 
 /**
  * The note under a row. A WARNING that shares its name with a verified network is the classic evil twin,
@@ -198,11 +214,12 @@ fun NearbyScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) { repeat(4) { SkeletonRow() } }
                 }
                 is NearbyUiState.Loaded -> {
+                    val rows = remember(state.result) { groupRows(state.result.networks) }
                     RegistryLine(state.result.registry)
                     SectionHeader(
                         "Available networks",
                         Modifier.padding(top = Spacing.xs),
-                        trailing = plural(state.result.networks.size, "result"),
+                        trailing = plural(rows.size, "result"),
                     )
                     Spacer(Modifier.height(Spacing.xs))
                     // The page itself never scrolls; on very short screens only this list does.
@@ -211,11 +228,12 @@ fun NearbyScreen(
                         verticalArrangement = Arrangement.spacedBy(9.dp),
                         contentPadding = PaddingValues(top = 2.dp, bottom = Spacing.s),
                     ) {
-                        items(state.result.networks, key = { it.bssid }) { network ->
+                        items(rows, key = { it.network.bssid }) { row ->
                             NetworkRow(
-                                network = network,
-                                onClick = { onOpenNetwork(network.bssid) },
-                                note = noteFor(network, state.result.networks),
+                                network = row.network,
+                                onClick = { onOpenNetwork(row.network.bssid) },
+                                note = noteFor(row.network, state.result.networks),
+                                accessPoints = row.accessPoints,
                             )
                         }
                     }
@@ -236,7 +254,7 @@ private fun SummaryCard(state: NearbyUiState, onRefresh: () -> Unit) {
         NearbyUiState.Loading -> "Scanning…" to "Checking each network against the registry."
         NearbyUiState.NeedsPermission -> "Location is off" to "Needed to list nearby Wi-Fi."
         NearbyUiState.Empty -> "No networks found" to "Last scanned just now"
-        is NearbyUiState.Loaded -> "${plural(state.result.networks.size, "network")} found" to
+        is NearbyUiState.Loaded -> "${plural(groupRows(state.result.networks).size, "network")} found" to
             "Last scanned ${timeAgo(state.result.scannedAtMillis, rememberNowMillis())}"
     }
     Row(

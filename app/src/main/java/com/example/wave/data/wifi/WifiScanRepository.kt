@@ -62,6 +62,15 @@ class WifiScanRepository(
         (listOfNotNull(connection.value) + lastScan?.networks.orEmpty())
             .firstOrNull { it.bssid.equals(bssid, ignoreCase = true) }
 
+    override fun accessPointsOf(network: NetworkUi): List<NetworkUi> {
+        if (network.ssid == RegistryClassifier.HIDDEN_NAME) return listOf(network) // hidden names aren't comparable
+        return (listOfNotNull(connection.value) + lastScan?.networks.orEmpty())
+            .filter { it.ssid == network.ssid }
+            .distinctBy { it.bssid.lowercase() }
+            .sortedWith(compareBy({ it.verdict.ordinal }, { -it.signal }))
+            .ifEmpty { listOf(network) }
+    }
+
     /** Null when not on Wi-Fi, or when Android hides the BSSID (no location permission). */
     private fun classifyConnection(conn: WifiConnection?, batch: ScanBatch?, state: RegistryState): NetworkUi? {
         val bssid = conn?.bssid ?: return null

@@ -34,6 +34,7 @@ import com.example.wave.model.NetworkUi
 import com.example.wave.model.Verdict
 import com.example.wave.model.WaveyMood
 import com.example.wave.model.waveyMoodFor
+import com.example.wave.ui.components.AccessPointsCard
 import com.example.wave.ui.components.ConnectionCard
 import com.example.wave.ui.components.HeroCard
 import com.example.wave.ui.components.NetworkMetricsCard
@@ -64,7 +65,8 @@ import kotlinx.coroutines.flow.stateIn
 sealed interface DetailUiState {
     data object Loading : DetailUiState
     data object NotFound : DetailUiState
-    data class Loaded(val network: NetworkUi) : DetailUiState
+    /** [accessPoints]: every radio broadcasting this name (incl. [network]); shown when there's more than one. */
+    data class Loaded(val network: NetworkUi, val accessPoints: List<NetworkUi> = emptyList()) : DetailUiState
 }
 
 /** A scanned network is a snapshot; the network you're connected to updates live (signal, link speed, IP). */
@@ -73,22 +75,22 @@ class DetailViewModel(repo: ScanRepository, bssid: String) : ViewModel() {
 
     val state: StateFlow<DetailUiState> = repo.connection
         .map { connected -> connected?.takeIf { it.bssid.equals(bssid, ignoreCase = true) } ?: snapshot }
-        .map { network -> network?.let { DetailUiState.Loaded(it) } ?: DetailUiState.NotFound }
+        .map { network -> network?.let { DetailUiState.Loaded(it, repo.accessPointsOf(it)) } ?: DetailUiState.NotFound }
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            snapshot?.let { DetailUiState.Loaded(it) } ?: DetailUiState.NotFound,
+            snapshot?.let { DetailUiState.Loaded(it, repo.accessPointsOf(it)) } ?: DetailUiState.NotFound,
         )
 }
 
 // ---- Route ----
 
 @Composable
-fun DetailRoute(container: AppContainer, bssid: String, onBack: () -> Unit) {
+fun DetailRoute(container: AppContainer, bssid: String, onBack: () -> Unit, onOpenNetwork: (bssid: String) -> Unit = {}) {
     val vm = waveViewModel(key = "detail-$bssid") { DetailViewModel(container.scanRepository, bssid) }
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    DetailScreen(state = state, onBack = onBack, onOpenWifiSettings = { openWifiSettings(context) })
+    DetailScreen(state = state, onBack = onBack, onOpenWifiSettings = { openWifiSettings(context) }, onOpenNetwork = onOpenNetwork)
 }
 
 // ---- Screen ----
@@ -99,6 +101,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onOpenWifiSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenNetwork: (bssid: String) -> Unit = {},
 ) {
     WaveScreen(title = "Network details", onBack = onBack, modifier = modifier) {
         when (state) {
@@ -118,13 +121,19 @@ fun DetailScreen(
                 )
                 PrimaryButton("Back to networks", onClick = onBack)
             }
-            is DetailUiState.Loaded -> Loaded(state.network, onBack, onOpenWifiSettings)
+            is DetailUiState.Loaded -> Loaded(state.network, state.accessPoints, onBack, onOpenWifiSettings, onOpenNetwork)
         }
     }
 }
 
 @Composable
-private fun Loaded(network: NetworkUi, onBack: () -> Unit, onOpenWifiSettings: () -> Unit) {
+private fun Loaded(
+    network: NetworkUi,
+    accessPoints: List<NetworkUi>,
+    onBack: () -> Unit,
+    onOpenWifiSettings: () -> Unit,
+    onOpenNetwork: (String) -> Unit,
+) {
     val (title, body) = when (network.verdict) {
         Verdict.VERIFIED -> "Looks legit" to
             "This access point is on the official registry and its security matches."
@@ -162,6 +171,7 @@ private fun Loaded(network: NetworkUi, onBack: () -> Unit, onOpenWifiSettings: (
     VerdictChecksCard(network)
     network.connection?.let { ConnectionCard(it) }
     NetworkMetricsCard(network)
+    if (accessPoints.size > 1) AccessPointsCard(network, accessPoints, onOpen = onOpenNetwork)
 
     // One clear action per verdict.
     when (network.verdict) {

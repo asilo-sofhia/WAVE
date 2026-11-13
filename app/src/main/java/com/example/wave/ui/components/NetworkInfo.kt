@@ -1,15 +1,18 @@
 package com.example.wave.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,8 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.wave.R
@@ -32,6 +37,8 @@ import com.example.wave.model.NetworkUi
 import com.example.wave.model.Verdict
 import com.example.wave.model.VerdictCheck
 import com.example.wave.model.signalQuality
+import com.example.wave.ui.theme.Divider
+import com.example.wave.ui.theme.MinTouch
 import com.example.wave.ui.theme.Navy900
 import com.example.wave.ui.theme.Slate600
 import com.example.wave.ui.theme.Spacing
@@ -149,6 +156,54 @@ fun NetworkMetricsCard(network: NetworkUi, modifier: Modifier = Modifier, nowMil
                     color = Slate600,
                 )
             }
+        }
+    }
+}
+
+/**
+ * "Access points named X": every radio broadcasting this name, so merging them into one list row loses nothing.
+ * Each line: band + channel, BSSID, signal, verdict. Tap another one to open its own details.
+ */
+@Composable
+fun AccessPointsCard(current: NetworkUi, accessPoints: List<NetworkUi>, onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
+    WaveCard(modifier.fillMaxWidth()) {
+        CardTitle("Access points named ${current.ssid}")
+        Text(
+            "The same name can come from several radios of one router, or from a fake copy.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Slate600,
+        )
+        Spacer(Modifier.height(Spacing.s))
+        accessPoints.forEachIndexed { i, ap ->
+            val isCurrent = ap.bssid.equals(current.bssid, ignoreCase = true)
+            val channel = ap.metrics?.channel?.let { " · ch $it" }.orEmpty()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = MinTouch)
+                    .then(
+                        if (isCurrent) Modifier
+                        else Modifier.clickable(onClickLabel = "Open this access point", role = Role.Button) { onOpen(ap.bssid) },
+                    )
+                    .padding(vertical = Spacing.s)
+                    .semantics(mergeDescendants = true) {},
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "${ap.band.label}$channel${if (isCurrent) " · showing" else ""}",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Navy900,
+                    )
+                    Text(ap.bssid, style = MaterialTheme.typography.bodySmall, color = Slate600, fontFamily = FontFamily.Monospace)
+                    Text("${ap.signal} dBm · ${signalQuality(ap.signal).label}", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                }
+                Spacer(Modifier.width(Spacing.s))
+                VerdictChip(ap.verdict, compact = true)
+                if (!isCurrent) Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Slate600, modifier = Modifier.size(22.dp))
+                else Spacer(Modifier.width(22.dp))
+            }
+            if (i != accessPoints.lastIndex) HorizontalDivider(color = Divider)
         }
     }
 }

@@ -27,6 +27,12 @@ interface ScanRepository {
 
     /** A network from the latest scan or the current connection, by BSSID. */
     fun findNetwork(bssid: String): NetworkUi?
+
+    /**
+     * Every access point broadcasting [network]'s name (a router's 2.4/5 GHz radios, mesh nodes, or a twin),
+     * Verified first. Used to show one row per network but still list each radio on the details screen.
+     */
+    fun accessPointsOf(network: NetworkUi): List<NetworkUi> = listOf(network)
 }
 
 interface QrVerifier {

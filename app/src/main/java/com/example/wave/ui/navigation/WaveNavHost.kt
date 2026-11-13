@@ -72,6 +72,7 @@ fun WaveNavHost(
                 container = container,
                 bssid = entry.arguments?.getString(Routes.ARG_BSSID).orEmpty(),
                 onBack = { nav.popBackStack() },
+                onOpenNetwork = { nav.navigate(Routes.detail(it)) },
             )
         }
         composable(Routes.SCAN_QR) {
