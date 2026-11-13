@@ -33,3 +33,38 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Signed release output (Build > Generate Signed Bundle/APK)
+/app/release/
+
+# Signing / secret config (backend phase will add keys - never commit them)
+keystore.properties
+secrets.properties
+.env
+
+# Backend (signing tool + server). backend/.gitignore repeats these.
+# Private keys never go to Git
+backend/keys/*.private.pem
+*.pem
+# Home network details stay on each laptop
+backend/registry/*.home-dev.json*
+# ...and its copy bundled into debug builds (app/build.gradle.kts copyHomeRegistry)
+app/src/debug/assets/registry/
+# Generated QR images contain Wi-Fi passwords
+backend/out/
+backend/.venv/
+__pycache__/
+
+# Lint outputs
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/
+
+# Claude Code personal settings (CLAUDE.md itself IS committed)
+.claude/settings.local.json

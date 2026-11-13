@@ -1,0 +1,103 @@
+package com.example.wave.di
+
+import android.content.Context
+import com.example.wave.data.ExitPathChecker
+import com.example.wave.data.LocationPermissionGate
+import com.example.wave.data.NetworkClassifier
+import com.example.wave.data.QrVerifier
+import com.example.wave.data.RegistryRepository
+import com.example.wave.data.ScanRepository
+import com.example.wave.data.exitpath.UnavailableExitPathChecker
+import com.example.wave.data.fake.FakeExitPathChecker
+import com.example.wave.data.fake.FakeLocationPermissionGate
+import com.example.wave.data.fake.FakeQrVerifier
+import com.example.wave.data.fake.FakeScanRepository
+import com.example.wave.data.fake.ScenarioStore
+import com.example.wave.data.qr.QrImageReader
+import com.example.wave.data.qr.SignedQrVerifier
+import com.example.wave.data.registry.BundledRegistryRepository
+import com.example.wave.data.wifi.AndroidLocationPermissionGate
+import com.example.wave.data.wifi.AndroidWifiScanner
+import com.example.wave.data.wifi.WifiJoiner
+import com.example.wave.data.wifi.WifiScanRepository
+import com.example.wave.domain.RegistryClassifier
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+
+/**
+ * Manual DI. Screens only see the interfaces below; real and fake implementations are swapped here only.
+ *
+ * [realWifi] (default on, switchable in the debug menu, applied on restart):
+ * - on:  real Wi-Fi scanning, connection and location permission, judged against the signed registry bundled
+ *        in the app (debug builds: your home test registry, if backend/registry has a signed one). The exit-path
+ *        server isn't built yet, so the exit path stays PENDING.
+ * - off: the demo scenarios (fake data), exactly as in the frontend phase.
+ * QR codes are read from the camera / gallery in both modes; real mode verifies their signature for real.
+ */
+class AppContainer(context: Context) {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val prefs = context.getSharedPreferences("wave_prefs", Context.MODE_PRIVATE)
+
+    val onboarding = OnboardingPrefs(prefs)
+
+    /** True = real Wi-Fi data; false = demo scenarios. Read once per process start. */
+    val realWifi: Boolean = prefs.getBoolean(KEY_REAL_WIFI, true)
+
+    /** Saves the choice; the caller restarts the app so every screen picks it up. */
+    fun setRealWifi(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_REAL_WIFI, enabled).commit()
+    }
+
+    /** Demo-only state. [demo] is what the debug menu sees (scenarios still drive the fake QR results). */
+    private val store = ScenarioStore(
+        initialLocationGranted = prefs.getBoolean(KEY_FAKE_LOCATION, false),
+        onLocationChanged = { prefs.edit().putBoolean(KEY_FAKE_LOCATION, it).apply() },
+    )
+    val demo: ScenarioStore? = store
+
+    /** Non-null with real Wi-Fi: MainActivity attaches its permission launcher to it. */
+    val androidPermissionGate: AndroidLocationPermissionGate? =
+        if (realWifi) AndroidLocationPermissionGate(context) else null
+
+    val locationPermission: LocationPermissionGate = androidPermissionGate ?: FakeLocationPermissionGate(store)
+
+    /** The signed registry. Only trusted after its Ed25519 signature checks out; Missing until then. */
+    val registryRepository: RegistryRepository = BundledRegistryRepository(context, appScope)
+
+    val classifier: NetworkClassifier = RegistryClassifier()
+
+    val scanRepository: ScanRepository =
+        if (realWifi) {
+            WifiScanRepository(
+                scanner = AndroidWifiScanner(context, appScope, locationPermission.granted),
+                registry = registryRepository.state,
+                classifier = classifier,
+                scope = appScope,
+            )
+        } else {
+            FakeScanRepository(store, appScope)
+        }
+
+    /** Real Wi-Fi mode checks QR signatures for real (CONTRACT §3); demo mode answers from the scenario. */
+    val qrVerifier: QrVerifier = if (realWifi) SignedQrVerifier(registryRepository.state) else FakeQrVerifier(store)
+
+    /** Joins a network from a QR code (Android's "Save this network?" sheet). Null in demo mode: demos never join. */
+    val wifiJoiner: WifiJoiner? = if (realWifi) WifiJoiner(context) else null
+
+    /** Reads QR codes from the camera and from gallery pictures (ML Kit, offline). Used in both modes. */
+    val qrImageReader: QrImageReader by lazy { QrImageReader(context) }
+
+    val exitPathChecker: ExitPathChecker = if (realWifi) UnavailableExitPathChecker() else FakeExitPathChecker(store)
+
+    private companion object {
+        const val KEY_FAKE_LOCATION = "fake_location_granted"
+        const val KEY_REAL_WIFI = "real_wifi"
+    }
+}
+
+class OnboardingPrefs(private val prefs: android.content.SharedPreferences) {
+    var splashSeen: Boolean
+        get() = prefs.getBoolean("splash_seen", false)
+        set(value) = prefs.edit().putBoolean("splash_seen", value).apply()
+}

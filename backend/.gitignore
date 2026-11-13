@@ -1,0 +1,9 @@
+# Private keys never go to Git
+keys/*.private.pem
+*.pem
+# Home network details stay on your laptop
+registry/*.home-dev.json*
+# Generated output (QR images contain Wi-Fi passwords)
+out/
+__pycache__/
+.venv/
