@@ -53,6 +53,8 @@ backend/keys/*.private.pem
 *.pem
 # Home network details stay on each laptop
 backend/registry/*.home-dev.json*
+# ...and its copy bundled into debug builds (app/build.gradle.kts copyHomeRegistry)
+app/src/debug/assets/registry/
 # Generated QR images contain Wi-Fi passwords
 backend/out/
 backend/.venv/

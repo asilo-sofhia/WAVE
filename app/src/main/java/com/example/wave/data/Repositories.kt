@@ -6,6 +6,7 @@ import com.example.wave.model.QrVerification
 import com.example.wave.model.Registry
 import com.example.wave.model.ScanObservation
 import com.example.wave.model.ScanResult
+import com.example.wave.model.WifiStandard
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -48,6 +49,16 @@ data class WifiConnection(
     val rssi: Int?,
     /** Synthesized capabilities string from WifiInfo's security type (API 31+), for when the AP isn't in the scan. */
     val capabilitiesHint: String?,
+    /** Current link speed (Mbps), and per direction where Android reports it. */
+    val linkSpeedMbps: Int? = null,
+    val txLinkSpeedMbps: Int? = null,
+    val rxLinkSpeedMbps: Int? = null,
+    /** Null on Android 10 (WifiInfo.getWifiStandard is API 30+). */
+    val wifiStandard: WifiStandard? = null,
+    /** From the network's LinkProperties: this phone's address, the router, and the DNS servers. */
+    val ipAddress: String? = null,
+    val gateway: String? = null,
+    val dnsServers: List<String> = emptyList(),
 )
 
 /** One round of scan results. */
@@ -68,6 +79,31 @@ interface WifiScanner {
 
     /** Ask for a fresh scan and wait for results (with a timeout; falls back to cached results). */
     suspend fun scan(): ScanBatch
+}
+
+/** Where the signed school registry stands. Only a registry whose signature checked out is ever here. */
+sealed interface RegistryState {
+    /** No verified registry: nothing can be Verified. [problem] says why (null = none bundled/downloaded yet). */
+    data class Missing(val problem: String? = null) : RegistryState
+
+    data class Ready(val registry: Registry) : RegistryState
+
+    /** Signature fine but past expires_at: still used offline, shown as out of date (CONTRACT §2). */
+    data class Stale(val registry: Registry) : RegistryState
+}
+
+val RegistryState.registryOrNull: Registry?
+    get() = when (this) {
+        is RegistryState.Ready -> registry
+        is RegistryState.Stale -> registry
+        is RegistryState.Missing -> null
+    }
+
+interface RegistryRepository {
+    val state: StateFlow<RegistryState>
+
+    /** Load again (today: the bundled file; later: download from /v1/registry). Never replaces a good registry with a bad one. */
+    suspend fun refresh(): RegistryState
 }
 
 /** Pure: no Android imports, so it runs in plain JUnit. registry == null -> every network is UNKNOWN. */

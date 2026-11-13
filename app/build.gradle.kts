@@ -47,6 +47,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.tink.android)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
@@ -55,3 +56,14 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+// Debug builds bundle the signed HOME test registry from backend/registry/ (if it exists on this laptop),
+// renamed to registry/registry.json + .sig. The bytes are copied unchanged, so the signature still holds.
+// The target folder is git-ignored: home network details never go to Git. Release builds get nothing.
+val copyHomeRegistry by tasks.registering(Sync::class) {
+    from(rootProject.file("backend/registry")) {
+        include("registry.home-dev.json", "registry.home-dev.json.sig")
+        rename { it.replace("registry.home-dev.json", "registry.json") }
+    }
+    into(layout.projectDirectory.dir("src/debug/assets/registry"))
+}
+tasks.named("preBuild") { dependsOn(copyHomeRegistry) }
