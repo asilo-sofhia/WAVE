@@ -19,7 +19,8 @@ from array import array
 from dataclasses import dataclass
 from pathlib import Path
 
-log = logging.getLogger("wave.asn")
+# Uvicorn only prints its own loggers, so the server's messages go through "uvicorn.error" (its main log).
+log = logging.getLogger("uvicorn.error")
 
 
 @dataclass(frozen=True)

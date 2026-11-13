@@ -4,16 +4,19 @@ Run from backend/:  uvicorn server.main:app --host 127.0.0.1 --port 8000
 """
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 
 from .asn_db import AsnDatabase
+from .client_ip import resolve
 from .config import Settings
 from .registry_store import RegistryStore, RegistryUnavailable, b64url
 
-log = logging.getLogger("wave.server")
+# Uvicorn only prints its own loggers, so the server's messages go through "uvicorn.error" (its main log).
+log = logging.getLogger("uvicorn.error")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -62,6 +65,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "registry_b64url": b64url(reg.registry_bytes),
             "signature_b64url": b64url(reg.signature),
         }
+
+    @app.get("/v1/exit-path")
+    def exit_path(request: Request, response: Response) -> dict:
+        # Every answer is about this one connection at this moment: never cache it anywhere.
+        response.headers["Cache-Control"] = "no-store"
+        db: AsnDatabase | None = app.state.asn_db
+        if db is None:
+            raise HTTPException(status_code=503, detail="ASN database not loaded", headers={"Cache-Control": "no-store"})
+
+        checked_at = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        unknown = {"public_ip": None, "asn": None, "as_name": None, "checked_at": checked_at}
+
+        client = resolve(request, settings)
+        if client.ip is None:
+            return {**unknown, "note": client.problem}
+        if not client.ip.is_global:  # 127.x, 10.x, 172.16-31.x, 192.168.x, 100.64/10, fc00::/7, fe80::/10, ...
+            return {
+                **unknown,
+                "note": "The server sees a private or local address, not your public one, so it can't tell "
+                "which provider your traffic exits through. Reach the server over the internet (e.g. a tunnel).",
+            }
+        info = db.lookup(client.ip)
+        if info is None:
+            return {**unknown, "public_ip": str(client.ip), "note": "No ASN found for this address."}
+        return {"public_ip": str(client.ip), "asn": info.asn, "as_name": info.as_name, "checked_at": checked_at}
 
     return app
 

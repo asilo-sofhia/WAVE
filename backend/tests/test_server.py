@@ -221,6 +221,119 @@ def test_server_starts_with_a_corrupt_asn_file(tmp_path):
         assert c.get("/v1/health").json()["asn_db_loaded"] is False
 
 
+# ---------------- /v1/exit-path ----------------
+GLOBE_IP = "203.177.1.2"   # AS4775 in the fixture
+DITO_IP = "131.226.96.5"   # AS139831 in the fixture
+SPOOF = {"CF-Connecting-IP": DITO_IP, "X-Forwarded-For": DITO_IP}
+
+
+def exit_path(tmp_path, asn_file, peer, headers=None, **settings):
+    with client(settings_for(tmp_path, asn_db=asn_file, **settings), peer=(peer, 50000)) as c:
+        return c.get("/v1/exit-path", headers=headers or {})
+
+
+def test_exit_path_answers_with_the_asn_and_no_store(tmp_path, asn_file):
+    r = exit_path(tmp_path, asn_file, GLOBE_IP)
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-store"
+    body = r.json()
+    assert body["public_ip"] == GLOBE_IP
+    assert body["asn"] == 4775
+    assert body["as_name"] == "GLOBE-TELECOM-AS - Globe Telecoms"
+    assert body["checked_at"].endswith("Z") and "note" not in body
+
+
+def test_exit_path_ipv6_and_ipv4_mapped_peers(tmp_path, asn_file):
+    assert exit_path(tmp_path, asn_file, "2001:4860:4860::8888").json()["asn"] == 15169
+    mapped = exit_path(tmp_path, asn_file, f"::ffff:{GLOBE_IP}").json()
+    assert mapped["asn"] == 4775 and mapped["public_ip"] == GLOBE_IP
+
+
+@pytest.mark.parametrize(
+    "peer",
+    ["127.0.0.1", "10.1.2.3", "192.168.1.5", "172.16.0.1", "172.31.255.255", "100.64.0.1", "::1", "fc00::1", "fe80::1"],
+)
+def test_private_and_local_addresses_get_a_note_never_a_guess(tmp_path, asn_file, peer):
+    body = exit_path(tmp_path, asn_file, peer).json()
+    assert body["public_ip"] is None and body["asn"] is None and body["as_name"] is None
+    assert "private or local address" in body["note"]
+
+
+def test_public_address_without_asn_says_so(tmp_path, asn_file):
+    body = exit_path(tmp_path, asn_file, "172.32.0.1").json()  # just outside 172.16/12: public, but not in fixture
+    assert body["public_ip"] == "172.32.0.1" and body["asn"] is None
+    assert body["note"] == "No ASN found for this address."
+
+
+def test_exit_path_503_without_asn_dataset(tmp_path):
+    with client(settings_for(tmp_path), peer=(GLOBE_IP, 50000)) as c:
+        r = c.get("/v1/exit-path")
+    assert r.status_code == 503
+    assert r.json()["detail"] == "ASN database not loaded"
+    assert r.headers["cache-control"] == "no-store"
+
+
+# Header spoofing: a phone (or attacker) can send any header. Only a trusted proxy may name the client.
+def test_mode_none_ignores_all_forwarding_headers(tmp_path, asn_file):
+    assert exit_path(tmp_path, asn_file, GLOBE_IP, SPOOF).json()["asn"] == 4775
+    # Even from loopback: in "none" mode the headers mean nothing.
+    assert exit_path(tmp_path, asn_file, "127.0.0.1", SPOOF).json()["asn"] is None
+
+
+def test_cloudflare_mode_trusts_cf_header_only_from_loopback(tmp_path, asn_file):
+    for loopback in ("127.0.0.1", "::1"):
+        r = exit_path(tmp_path, asn_file, loopback, {"CF-Connecting-IP": DITO_IP}, trusted_proxy="cloudflare")
+        assert r.json()["asn"] == 139831, loopback
+
+
+def test_cloudflare_mode_ignores_spoofed_cf_header_from_the_internet(tmp_path, asn_file):
+    body = exit_path(tmp_path, asn_file, GLOBE_IP, SPOOF, trusted_proxy="cloudflare").json()
+    assert body["asn"] == 4775 and body["public_ip"] == GLOBE_IP
+
+
+def test_cloudflare_mode_ignores_x_forwarded_for(tmp_path, asn_file):
+    r = exit_path(tmp_path, asn_file, "127.0.0.1", {"X-Forwarded-For": DITO_IP}, trusted_proxy="cloudflare")
+    assert r.json()["asn"] is None  # no CF-Connecting-IP: unknown, never the XFF value
+
+
+def test_cloudflare_mode_without_header_is_unknown_not_the_tunnel(tmp_path, asn_file):
+    body = exit_path(tmp_path, asn_file, "127.0.0.1", trusted_proxy="cloudflare").json()
+    assert body["asn"] is None and "tunnel didn't say" in body["note"]
+
+
+def test_forwarded_mode_uses_right_most_entry_from_a_trusted_proxy(tmp_path, asn_file):
+    # The client sent "X-Forwarded-For: <GLOBE>"; our proxy appended the real address on the right.
+    r = exit_path(
+        tmp_path, asn_file, "10.0.0.2", {"X-Forwarded-For": f"{GLOBE_IP}, {DITO_IP}"},
+        trusted_proxy="forwarded", trusted_proxy_ips=frozenset({"10.0.0.2"}),
+    )
+    assert r.json()["asn"] == 139831
+
+
+def test_forwarded_mode_ignores_headers_from_untrusted_peers(tmp_path, asn_file):
+    body = exit_path(
+        tmp_path, asn_file, GLOBE_IP, SPOOF, trusted_proxy="forwarded", trusted_proxy_ips=frozenset({"10.0.0.2"})
+    ).json()
+    assert body["asn"] == 4775 and body["public_ip"] == GLOBE_IP
+
+
+def test_forwarded_mode_ignores_cf_header_and_bad_values(tmp_path, asn_file):
+    kw = dict(trusted_proxy="forwarded", trusted_proxy_ips=frozenset({"10.0.0.2"}))
+    assert exit_path(tmp_path, asn_file, "10.0.0.2", {"CF-Connecting-IP": DITO_IP}, **kw).json()["asn"] is None
+    garbage = exit_path(tmp_path, asn_file, "10.0.0.2", {"X-Forwarded-For": f"{DITO_IP}, not-an-ip"}, **kw).json()
+    assert garbage["asn"] is None and "proxy didn't say" in garbage["note"]
+
+
+def test_server_has_no_write_endpoints_and_no_cors(tmp_path, asn_file):
+    with client(settings_for(tmp_path, asn_db=asn_file), peer=(GLOBE_IP, 50000)) as c:
+        for path in ("/v1/health", "/v1/registry", "/v1/exit-path"):
+            assert c.post(path).status_code == 405
+            assert c.put(path).status_code == 405
+        r = c.get("/v1/health", headers={"Origin": "https://evil.example"})
+        assert "access-control-allow-origin" not in r.headers
+        assert c.get("/docs").status_code == 404 and c.get("/openapi.json").status_code == 404
+
+
 # ---------------- config ----------------
 def test_invalid_proxy_settings_refuse_to_start():
     with pytest.raises(ConfigError):
