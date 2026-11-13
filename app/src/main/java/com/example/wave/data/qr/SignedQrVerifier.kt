@@ -9,6 +9,8 @@ import com.example.wave.model.QrVerification
 import com.example.wave.model.Registry
 import com.example.wave.model.SecurityType
 import com.example.wave.model.Verdict
+import com.example.wave.model.WifiAuth
+import com.example.wave.model.WifiCredentials
 import com.example.wave.model.WifiBand
 import com.example.wave.verify.WaveKeys
 import com.example.wave.verify.WifiQr
@@ -37,7 +39,21 @@ class SignedQrVerifier(
             signer = check.keyId,
             expiresAt = check.until?.format(DISPLAY_DATE),
             rawPayload = WifiQr.maskPassword(payload), // never show the Wi-Fi password on screen
+            credentials = credentialsFrom(check),
         )
+    }
+
+    /** Only codes that may be used: genuine, or ordinary unsigned ones. Changed / expired / unreadable -> null. */
+    private fun credentialsFrom(check: WifiQr.Check): WifiCredentials? {
+        if (check.result !in setOf(QrResult.VALID, QrResult.UNSIGNED, QrResult.UNKNOWN_KEY)) return null
+        val ssid = check.ssid?.takeIf { it.isNotEmpty() } ?: return null
+        val auth = when (check.type) {
+            "nopass", null -> if (check.fields["P"].isNullOrEmpty()) WifiAuth.OPEN else WifiAuth.WPA
+            "WPA" -> WifiAuth.WPA
+            "SAE" -> WifiAuth.SAE
+            else -> WifiAuth.OTHER // e.g. WEP: Android can't add these for apps
+        }
+        return WifiCredentials(ssid, check.fields["P"]?.takeIf { it.isNotEmpty() }, auth, check.fields["H"].equals("true", ignoreCase = true))
     }
 
     /** What the code says (name + security). Null when it isn't a readable Wi-Fi code. */

@@ -18,6 +18,7 @@ import com.example.wave.data.qr.SignedQrVerifier
 import com.example.wave.data.registry.BundledRegistryRepository
 import com.example.wave.data.wifi.AndroidLocationPermissionGate
 import com.example.wave.data.wifi.AndroidWifiScanner
+import com.example.wave.data.wifi.WifiJoiner
 import com.example.wave.data.wifi.WifiScanRepository
 import com.example.wave.domain.RegistryClassifier
 import kotlinx.coroutines.CoroutineScope
@@ -80,6 +81,9 @@ class AppContainer(context: Context) {
 
     /** Real Wi-Fi mode checks QR signatures for real (CONTRACT §3); demo mode answers from the scenario. */
     val qrVerifier: QrVerifier = if (realWifi) SignedQrVerifier(registryRepository.state) else FakeQrVerifier(store)
+
+    /** Joins a network from a QR code (Android's "Save this network?" sheet). Null in demo mode: demos never join. */
+    val wifiJoiner: WifiJoiner? = if (realWifi) WifiJoiner(context) else null
 
     /** Reads QR codes from the camera and from gallery pictures (ML Kit, offline). Used in both modes. */
     val qrImageReader: QrImageReader by lazy { QrImageReader(context) }

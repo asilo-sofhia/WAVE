@@ -10,7 +10,22 @@ data class QrVerification(
     val signer: String?,
     val expiresAt: String?,
     val rawPayload: String,
+    /** What's needed to join the network. Null when the code must not be used (changed, expired, unreadable). */
+    val credentials: WifiCredentials? = null,
 )
+
+/** How a Wi-Fi QR code says to join (its T field). */
+enum class WifiAuth { OPEN, WPA, SAE, OTHER }
+
+/** The network a QR code describes, for joining it. [toString] never includes the password. */
+data class WifiCredentials(
+    val ssid: String,
+    val password: String?,
+    val auth: WifiAuth,
+    val hidden: Boolean,
+) {
+    override fun toString() = "WifiCredentials(ssid=$ssid, auth=$auth, hidden=$hidden, password=${if (password == null) "none" else "••••"})"
+}
 
 /** How a QR result is shown: VALID = verified, changed/expired = warning, the rest = unknown. */
 val QrResult.verdict: Verdict
