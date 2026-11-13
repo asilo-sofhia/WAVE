@@ -14,6 +14,9 @@
     <!-- Android 13+. No neverForLocation: WAVE needs real BSSIDs to spot evil twins. -->
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
     <uses-feature android:name="android.hardware.wifi" android:required="true" />
+    <!-- Scan QR viewfinder + flashlight. Optional: without a camera, Gallery still reads QR pictures. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
         android:name=".WaveApplication"

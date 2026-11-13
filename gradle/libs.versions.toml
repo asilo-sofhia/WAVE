@@ -11,6 +11,10 @@ kotlin = "2.2.10"
 composeBom = "2026.02.01"
 # Ed25519 signature checks for the signed registry (CONTRACT.md §1). Apache-2.0.
 tink = "1.24.0"
+# Live camera for the Scan QR viewfinder + flashlight. Apache-2.0.
+camerax = "1.6.2"
+# QR decoding from camera frames and gallery photos, bundled model (offline). Free, Google ML Kit terms.
+mlkitBarcode = "17.3.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -31,6 +35,10 @@ androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 tink-android = { group = "com.google.crypto.tink", name = "tink-android", version.ref = "tink" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
