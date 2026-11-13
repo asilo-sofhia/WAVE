@@ -3,3 +3,7 @@ gradlew text eol=lf
 *.bat text eol=crlf
 *.png binary
 *.webp binary
+# Signed files: signatures cover the exact bytes (CONTRACT.md Rule #1), so no line-ending conversion
+backend/registry/*.json -text
+backend/registry/*.sig -text
+backend/test-vectors/*.json -text

@@ -2,11 +2,12 @@
 
 WAVE detects evil twin Wi-Fi networks and fake Wi-Fi QR codes. BatStateU CS 312 Mobile Computing, Group 9.
 
-## Current phase: FRONTEND ONLY
-- Build all screens with FAKE data. No real Wi-Fi scanning, no camera/ML Kit, no crypto, no network calls yet.
-- All data comes through interfaces (e.g. `ScanRepository`, `QrVerifier`, `ExitPathChecker`) with `Fake*` implementations, so the real backend plugs in later without UI changes.
-- Keep the state names in docs/FRONTEND_PLAN.md stable; the backend will plug into them later.
-- Mascot source images are in assets/mascot/. Android only bundles them after they're imported into app/src/main/res/.
+## Current phase: INTEGRATION (shared foundation first)
+- Screens keep using the interfaces in data/ and never call Android Wi-Fi, Room, crypto or network code directly.
+- Real implementations replace Fake* only in di/AppContainer.kt. Fakes stay available for the debug menu and demos.
+- docs/CONTRACT.md is the source of truth for the registry, QR and exit-path formats.
+- Lanes: (1) UI polish in ui/, (2) Android Wi-Fi API + classifier in data/wifi/ and domain/, (3) registry verification, Room cache, sync and server in data/registry/, data/local/, verify/ and backend/.
+- Shared files (model/, data/Repositories.kt, libs.versions.toml, AndroidManifest.xml) change only with team agreement.
 
 ## Stack
 Kotlin, Jetpack Compose, Material 3, Navigation Compose, ViewModel + StateFlow. minSdk 29. No other libraries without asking first.
