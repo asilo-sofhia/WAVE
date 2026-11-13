@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.wave.di.AppContainer
@@ -30,6 +29,7 @@ import com.example.wave.ui.navigation.Routes
 import com.example.wave.ui.navigation.Tab
 import com.example.wave.ui.navigation.WaveBottomBar
 import com.example.wave.ui.navigation.WaveNavHost
+import com.example.wave.ui.navigation.currentTab
 import com.example.wave.ui.navigation.navigateToTab
 
 @Composable
@@ -49,13 +49,8 @@ fun WaveApp(container: AppContainer) {
                 val backStack by nav.currentBackStackEntryAsState()
                 val destination = backStack?.destination
                 val currentRoute = destination?.route
-                val selectedTab = Tab.entries.firstOrNull { tab ->
-                    destination?.hierarchy?.any { it.route == tab.route } == true
-                } ?: when (currentRoute) {
-                    Routes.DETAIL -> Tab.NETWORKS
-                    Routes.QR_RESULT -> Tab.SCAN_QR
-                    else -> null
-                }
+                // Recomputed on every navigation (backStack changes): a details page highlights the tab it came from.
+                val selectedTab = remember(backStack) { nav.currentTab() }
                 val start = remember { if (container.onboarding.splashSeen) Routes.HOME else Routes.SPLASH }
 
                 Scaffold(
