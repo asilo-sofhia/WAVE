@@ -66,7 +66,6 @@ import com.example.wave.model.Verdict
 import com.example.wave.ui.components.NetworkRow
 import com.example.wave.ui.components.PrimaryButton
 import com.example.wave.ui.components.SectionHeader
-import com.example.wave.ui.components.TopBarAction
 import com.example.wave.ui.components.WaveBackground
 import com.example.wave.ui.components.WaveCard
 import com.example.wave.ui.components.WaveTopBar
@@ -201,14 +200,8 @@ fun NearbyScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxSize()) {
-        WaveTopBar(
-            title = "Nearby Networks",
-            actions = {
-                if (state !is NearbyUiState.NeedsPermission) {
-                    TopBarAction(R.drawable.ic_refresh, "Scan again", onRefresh)
-                }
-            },
-        )
+        // One way to scan again: the Refresh in the summary card (as in mockup 3), so no top-bar refresh icon.
+        WaveTopBar(title = "Nearby Networks")
         Column(
             Modifier
                 .fillMaxWidth()
