@@ -3,6 +3,8 @@ package com.example.wave.data
 import com.example.wave.model.ExitPathStatus
 import com.example.wave.model.NetworkUi
 import com.example.wave.model.QrVerification
+import com.example.wave.model.Registry
+import com.example.wave.model.ScanObservation
 import com.example.wave.model.ScanResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +36,43 @@ interface QrVerifier {
 interface ExitPathChecker {
     /** Emits PENDING first, then PASSED or FAILED. */
     fun check(network: NetworkUi): Flow<ExitPathStatus>
+}
+
+/** The Wi-Fi the phone is on, as Android reports it. Raw readings only. */
+data class WifiConnection(
+    /** Null when Android hides it (no location permission). */
+    val ssid: String?,
+    /** Lowercase. Null when Android hides it (no location permission / FLAG_INCLUDE_LOCATION_INFO). */
+    val bssid: String?,
+    val frequencyMhz: Int?,
+    val rssi: Int?,
+    /** Synthesized capabilities string from WifiInfo's security type (API 31+), for when the AP isn't in the scan. */
+    val capabilitiesHint: String?,
+)
+
+/** One round of scan results. */
+data class ScanBatch(
+    val observations: List<ScanObservation>,
+    val scannedAtMillis: Long,
+    /** False = Android throttled or refused the scan and these are the last cached results. */
+    val fresh: Boolean,
+)
+
+/** Android's Wi-Fi radio: nearby access points + the current connection. Never decides a verdict. */
+interface WifiScanner {
+    /** Null = not on Wi-Fi. */
+    val connection: StateFlow<WifiConnection?>
+
+    /** The last results Android delivered (from our scan or another app's). */
+    val latest: StateFlow<ScanBatch?>
+
+    /** Ask for a fresh scan and wait for results (with a timeout; falls back to cached results). */
+    suspend fun scan(): ScanBatch
+}
+
+/** Pure: no Android imports, so it runs in plain JUnit. registry == null -> every network is UNKNOWN. */
+fun interface NetworkClassifier {
+    fun classify(observation: ScanObservation, registry: Registry?): NetworkUi
 }
 
 interface LocationPermissionGate {
