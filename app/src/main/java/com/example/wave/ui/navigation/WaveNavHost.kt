@@ -78,6 +78,7 @@ fun WaveNavHost(
         }
         composable(Routes.SCAN_QR) {
             ScanQrRoute(
+                container = container,
                 onScanned = { nav.navigate(Routes.qrResult(it)) },
                 onBack = { nav.navigateToTab(Tab.HOME) },
             )

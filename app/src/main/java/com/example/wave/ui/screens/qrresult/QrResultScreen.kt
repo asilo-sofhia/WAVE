@@ -88,12 +88,13 @@ fun QrResultRoute(
     QrResultScreen(
         state = state,
         onBack = onBack,
-        onAction = { result ->
-            when (result) {
-                // Frontend phase: joining is done in the system Wi-Fi panel. The backend may add a direct join later.
-                QrResult.VALID -> openWifiSettings(context)
-                QrResult.UNSIGNED, QrResult.UNKNOWN_KEY -> onOpenTab(Tab.NETWORKS)
-                QrResult.BAD_SIGNATURE, QrResult.EXPIRED, QrResult.MALFORMED -> onBack()
+        onAction = { v ->
+            when {
+                // Joining is done in the system Wi-Fi panel (Android 10+ apps can't join for the user silently).
+                v.result == QrResult.VALID && !v.signedButUnregistered -> openWifiSettings(context)
+                v.result == QrResult.VALID -> onOpenTab(Tab.NETWORKS)
+                v.result == QrResult.UNSIGNED || v.result == QrResult.UNKNOWN_KEY -> onOpenTab(Tab.NETWORKS)
+                else -> onBack()
             }
         },
     )
@@ -101,16 +102,35 @@ fun QrResultRoute(
 
 // ---- Screen ----
 
+/**
+ * CONTRACT §3: a VALID signature for a network that isn't on the registry is Unknown, not Verified.
+ * (Fake fixtures always carry a registered network, so demo results are unchanged.)
+ */
+private val QrVerification.signedButUnregistered: Boolean
+    get() = result == QrResult.VALID && network != null && network.verdict != Verdict.VERIFIED
+
+private val QrVerification.shownVerdict: Verdict
+    get() = if (signedButUnregistered) Verdict.UNKNOWN else result.verdict
+
 private data class QrCopy(val chip: String, val title: String, val body: String, val action: String)
 
 private fun copyFor(v: QrVerification): QrCopy {
     val ssid = v.network?.ssid ?: "this network"
     return when (v.result) {
-        QrResult.VALID -> QrCopy(
-            "Valid", "Signed by ${v.signer}",
-            "This QR code is genuine and hasn't been changed. You can join $ssid.",
-            "Connect to $ssid",
-        )
+        QrResult.VALID -> if (v.signedButUnregistered) {
+            QrCopy(
+                "Not registered", "Signed by ${v.signer}",
+                "The code is genuine, but $ssid isn't on the registry, so WAVE can't vouch for the network itself.",
+                "Check nearby networks",
+            )
+        } else {
+            QrCopy(
+                "Valid", "Signed by ${v.signer}",
+                "This QR code is genuine and hasn't been changed. Before you join $ssid, check that its access " +
+                    "point shows Verified on Networks: a real code can be stuck next to a fake router.",
+                "Connect to $ssid",
+            )
+        }
         QrResult.BAD_SIGNATURE -> QrCopy(
             "Changed", "This QR code was changed",
             "Someone edited it after it was signed. It may send you to a fake network. Don't use it.",
@@ -143,7 +163,7 @@ private fun copyFor(v: QrVerification): QrCopy {
 fun QrResultScreen(
     state: QrResultUiState,
     onBack: () -> Unit,
-    onAction: (QrResult) -> Unit,
+    onAction: (QrVerification) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     WaveScreen(title = "QR result", onBack = onBack, modifier = modifier) {
@@ -163,12 +183,12 @@ fun QrResultScreen(
 }
 
 @Composable
-private fun Done(v: QrVerification, onAction: (QrResult) -> Unit) {
+private fun Done(v: QrVerification, onAction: (QrVerification) -> Unit) {
     val copy = copyFor(v)
-    val verdict = v.result.verdict
+    val verdict = v.shownVerdict
     HeroCard(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Wavey(waveyMoodFor(v.result), size = 150.dp)
+            Wavey(if (v.signedButUnregistered) WaveyMood.CURIOUS else waveyMoodFor(v.result), size = 150.dp)
             Spacer(Modifier.height(Spacing.s))
             StatusPill(verdict.style(), label = copy.chip)
             Spacer(Modifier.height(Spacing.m))
@@ -194,7 +214,7 @@ private fun Done(v: QrVerification, onAction: (QrResult) -> Unit) {
 
     PrimaryButton(
         copy.action,
-        onClick = { onAction(v.result) },
+        onClick = { onAction(v) },
         icon = when (v.result) {
             QrResult.VALID -> R.drawable.ic_wifi
             QrResult.UNSIGNED, QrResult.UNKNOWN_KEY -> R.drawable.ic_wifi

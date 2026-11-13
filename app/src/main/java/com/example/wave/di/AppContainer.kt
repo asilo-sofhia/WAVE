@@ -13,6 +13,8 @@ import com.example.wave.data.fake.FakeLocationPermissionGate
 import com.example.wave.data.fake.FakeQrVerifier
 import com.example.wave.data.fake.FakeScanRepository
 import com.example.wave.data.fake.ScenarioStore
+import com.example.wave.data.qr.QrImageReader
+import com.example.wave.data.qr.SignedQrVerifier
 import com.example.wave.data.registry.BundledRegistryRepository
 import com.example.wave.data.wifi.AndroidLocationPermissionGate
 import com.example.wave.data.wifi.AndroidWifiScanner
@@ -30,7 +32,7 @@ import kotlinx.coroutines.SupervisorJob
  *        in the app (debug builds: your home test registry, if backend/registry has a signed one). The exit-path
  *        server isn't built yet, so the exit path stays PENDING.
  * - off: the demo scenarios (fake data), exactly as in the frontend phase.
- * QR verification is fake in both modes until lane 3 delivers it.
+ * QR codes are read from the camera / gallery in both modes; real mode verifies their signature for real.
  */
 class AppContainer(context: Context) {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -76,7 +78,11 @@ class AppContainer(context: Context) {
             FakeScanRepository(store, appScope)
         }
 
-    val qrVerifier: QrVerifier = FakeQrVerifier(store)
+    /** Real Wi-Fi mode checks QR signatures for real (CONTRACT §3); demo mode answers from the scenario. */
+    val qrVerifier: QrVerifier = if (realWifi) SignedQrVerifier(registryRepository.state) else FakeQrVerifier(store)
+
+    /** Reads QR codes from the camera and from gallery pictures (ML Kit, offline). Used in both modes. */
+    val qrImageReader: QrImageReader by lazy { QrImageReader(context) }
 
     val exitPathChecker: ExitPathChecker = if (realWifi) UnavailableExitPathChecker() else FakeExitPathChecker(store)
 
