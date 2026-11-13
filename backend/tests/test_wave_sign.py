@@ -1,6 +1,7 @@
 """Tests for the WAVE signing tool. Run: python -m pytest -q"""
 import datetime as dt
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -32,6 +33,7 @@ def test_keygen_refuses_overwrite(keypair, tmp_path):
         ws.keygen("wave-2026-a", tmp_path / "keys", passphrase=None)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no Unix file permission bits; os.open(..., 0o600) is ignored")
 def test_private_key_file_is_owner_only(keypair):
     priv, _ = keypair
     assert oct(priv.stat().st_mode & 0o777) == "0o600"
@@ -50,7 +52,10 @@ def test_passphrase_protected_key_roundtrip(tmp_path, monkeypatch):
 # ---------------- registry ----------------
 def test_sample_registries_are_valid():
     for name in ("registry.json", "registry.home-dev.json"):
-        _, errors, _ = ws.validate_registry((ROOT / "registry" / name).read_bytes())
+        path = ROOT / "registry" / name
+        if not path.exists():  # registry.home-dev.json is git-ignored on purpose: only the signing laptop has it
+            continue
+        _, errors, _ = ws.validate_registry(path.read_bytes())
         assert errors == [], (name, errors)
 
 
