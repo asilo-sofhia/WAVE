@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -129,6 +130,24 @@ class NearbyViewModel(
     }
 }
 
+/**
+ * The two list sections. [known]: networks WAVE knows from the signed registry (Verified) and fake copies of
+ * their names (Warning, kept right under the real one). [available]: everything else (Unknown). Order is kept.
+ */
+data class NearbySections(val known: List<NearbyRow>, val available: List<NearbyRow>) {
+    companion object {
+        fun of(rows: List<NearbyRow>): NearbySections {
+            val (known, available) = rows.partition { it.network.verdict != Verdict.UNKNOWN }
+            return NearbySections(known, available)
+        }
+    }
+}
+
+@Composable
+private fun EmptySectionText(text: String) {
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = Slate600, modifier = Modifier.padding(horizontal = Spacing.xs))
+}
+
 /** One list row: the strongest access point stands for every access point in [accessPoints]. */
 data class NearbyRow(val network: NetworkUi, val accessPoints: List<NetworkUi>)
 
@@ -214,28 +233,49 @@ fun NearbyScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) { repeat(4) { SkeletonRow() } }
                 }
                 is NearbyUiState.Loaded -> {
-                    val rows = remember(state.result) { groupRows(state.result.networks) }
+                    val sections = remember(state.result) { NearbySections.of(groupRows(state.result.networks)) }
+                    val row: @Composable (NearbyRow) -> Unit = { r ->
+                        NetworkRow(
+                            network = r.network,
+                            onClick = { onOpenNetwork(r.network.bssid) },
+                            note = noteFor(r.network, state.result.networks),
+                            accessPoints = r.accessPoints,
+                        )
+                    }
                     RegistryLine(state.result.registry)
-                    SectionHeader(
-                        "Available networks",
-                        Modifier.padding(top = Spacing.xs),
-                        trailing = plural(rows.size, "result"),
-                    )
                     Spacer(Modifier.height(Spacing.xs))
-                    // The page itself never scrolls; on very short screens only this list does.
+                    // The page itself never scrolls; on very short screens only this list (with its headers) does.
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         verticalArrangement = Arrangement.spacedBy(9.dp),
                         contentPadding = PaddingValues(top = 2.dp, bottom = Spacing.s),
                     ) {
-                        items(rows, key = { it.network.bssid }) { row ->
-                            NetworkRow(
-                                network = row.network,
-                                onClick = { onOpenNetwork(row.network.bssid) },
-                                note = noteFor(row.network, state.result.networks),
-                                accessPoints = row.accessPoints,
+                        // Known: on the signed registry (Verified), plus fakes copying those names (Warning).
+                        // Hidden while no registry is loaded: the registry line above already explains why.
+                        if (state.result.registry.loaded || sections.known.isNotEmpty()) {
+                            item(key = "header-known") {
+                                SectionHeader(
+                                    "Known networks",
+                                    Modifier.semantics { heading() },
+                                    trailing = plural(sections.known.size, "result"),
+                                )
+                            }
+                            if (sections.known.isEmpty()) {
+                                item(key = "empty-known") { EmptySectionText("None of the networks around you are on the registry.") }
+                            }
+                            items(sections.known, key = { it.network.bssid }) { row(it) }
+                        }
+                        item(key = "header-available") {
+                            SectionHeader(
+                                "Available networks",
+                                Modifier.padding(top = Spacing.xs).semantics { heading() },
+                                trailing = plural(sections.available.size, "result"),
                             )
                         }
+                        if (sections.available.isEmpty()) {
+                            item(key = "empty-available") { EmptySectionText("No other networks nearby.") }
+                        }
+                        items(sections.available, key = { it.network.bssid }) { row(it) }
                     }
                 }
             }

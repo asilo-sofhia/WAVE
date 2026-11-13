@@ -5,6 +5,7 @@ import com.example.wave.domain.RegistryClassifier
 import com.example.wave.model.SecurityType
 import com.example.wave.model.WifiBand
 import com.example.wave.ui.components.accessPointsLabel
+import com.example.wave.ui.screens.nearby.NearbySections
 import com.example.wave.ui.screens.nearby.groupRows
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -41,6 +42,22 @@ class NearbyRowsTest {
         val h1 = FakeFixtures.cafe.copy(ssid = RegistryClassifier.HIDDEN_NAME, bssid = "f0:9f:c2:4a:01:b4")
         val h2 = h1.copy(bssid = "f0:9f:c2:4a:01:b5")
         assertEquals(2, groupRows(listOf(h1, h2)).size)
+    }
+
+    @Test
+    fun knownHoldsRegistryNetworksAndTheirFakesAvailableHoldsTheRest() {
+        val rows = groupRows(listOf(FakeFixtures.campus, FakeFixtures.twin, FakeFixtures.library, FakeFixtures.lab, FakeFixtures.cafe))
+        val sections = NearbySections.of(rows)
+        // The twin stays right under the real network it copies.
+        assertEquals(listOf(FakeFixtures.campus, FakeFixtures.twin, FakeFixtures.lab), sections.known.map { it.network })
+        assertEquals(listOf(FakeFixtures.library, FakeFixtures.cafe), sections.available.map { it.network })
+    }
+
+    @Test
+    fun withoutARegistryEverythingIsAvailable() {
+        val sections = NearbySections.of(groupRows(listOf(FakeFixtures.library, FakeFixtures.cafe)))
+        assertEquals(0, sections.known.size)
+        assertEquals(2, sections.available.size)
     }
 
     @Test
