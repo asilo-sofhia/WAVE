@@ -1,15 +1,57 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Gradle files
+.gradle/
+build/
+.kotlin/
+
+# Local configuration file (sdk path, etc)
 local.properties
+
+# Log/OS Files
+*.log
+
+# Android Studio generated files and folders
+captures/
+.externalNativeBuild/
+.cxx/
+*.aab
+*.apk
+output-metadata.json
+
+# IntelliJ
+*.iml
+.idea/
+misc.xml
+deploymentTargetDropDown.xml
+render.experimental.xml
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google Services (e.g. APIs or Firebase)
+google-services.json
+
+# Android Profiling
+*.hprof
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Signed release output (Build > Generate Signed Bundle/APK)
+/app/release/
+
+# Signing / secret config (backend phase will add keys - never commit them)
+keystore.properties
+secrets.properties
+.env
+
+# Lint outputs
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/
+
+# Claude Code personal settings (CLAUDE.md itself IS committed)
+.claude/settings.local.json
