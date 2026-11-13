@@ -4,6 +4,15 @@
 > Written Fri Nov 13, 2026. Foundation build Nov 14–15 → three lanes Nov 15–19 → **integration day Fri Nov 20**.
 > Sources of truth: `docs/CONTRACT.md` (data formats) · `docs/FRONTEND_PLAN.md` (UI state names) · this file (code seams and ownership).
 
+> **Status update, Nov 13 (built ahead of the plan, at the team lead's request):** real Wi-Fi scanning is in
+> and is the default. Built: `ScanObservation`, `Registry*` models, `SecurityType.UNSUPPORTED`, `WifiScanner` +
+> `NetworkClassifier` interfaces, `data/wifi/` (AndroidWifiScanner, AndroidLocationPermissionGate,
+> WifiScanRepository, parsing), `domain/RegistryClassifier`, Wi-Fi/location manifest permissions, and a
+> "Real Wi-Fi / Demo" switch in the debug menu. Simplification vs. §1.2: the registry is passed as a plain
+> `StateFlow<Registry?>` (always null) until lane 3 builds `RegistryRepository`, so every real network is UNKNOWN.
+> With real Wi-Fi the exit path uses `UnavailableExitPathChecker` (always PENDING) until the server exists.
+> Not yet built: RegistryRepository, signature checks, Room, exit-path client, CameraX/ML Kit, the per-component switch.
+
 **What the foundation does:** before the team splits, one person lands everything that all three lanes touch: shared models, interfaces, fakes, Gradle and manifest changes, and the Fake/Real switch. After that, each lane edits only the files it owns. Screens don't change.
 
 Legend for the code below: **🆕 new** · **✏️ changed (additive, nothing removed)** · **✅ existing, unchanged**

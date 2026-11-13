@@ -73,6 +73,7 @@ import com.example.wave.ui.screens.waveViewModel
 import com.example.wave.ui.theme.BrandIcon
 import com.example.wave.ui.theme.Divider
 import com.example.wave.ui.theme.Navy900
+import com.example.wave.ui.theme.NeutralFg
 import com.example.wave.ui.theme.Slate600
 import com.example.wave.ui.theme.Spacing
 import com.example.wave.ui.theme.VerifiedFg
@@ -201,7 +202,7 @@ fun NearbyScreen(
                     SectionHeader(
                         "Available networks",
                         Modifier.padding(top = Spacing.xs),
-                        trailing = "${state.result.networks.size} results",
+                        trailing = plural(state.result.networks.size, "result"),
                     )
                     Spacer(Modifier.height(Spacing.xs))
                     // The page itself never scrolls; on very short screens only this list does.
@@ -224,6 +225,9 @@ fun NearbyScreen(
     }
 }
 
+/** "1 network", "4 networks". */
+private fun plural(count: Int, noun: String) = if (count == 1) "1 $noun" else "$count ${noun}s"
+
 /** Glass card: white Wi-Fi circle, "N networks found", "Last scanned just now", blue Refresh. */
 @Composable
 private fun SummaryCard(state: NearbyUiState, onRefresh: () -> Unit) {
@@ -232,7 +236,7 @@ private fun SummaryCard(state: NearbyUiState, onRefresh: () -> Unit) {
         NearbyUiState.Loading -> "Scanning…" to "Checking each network against the registry."
         NearbyUiState.NeedsPermission -> "Location is off" to "Needed to list nearby Wi-Fi."
         NearbyUiState.Empty -> "No networks found" to "Last scanned just now"
-        is NearbyUiState.Loaded -> "${state.result.networks.size} networks found" to
+        is NearbyUiState.Loaded -> "${plural(state.result.networks.size, "network")} found" to
             "Last scanned ${timeAgo(state.result.scannedAtMillis, rememberNowMillis())}"
     }
     Row(
@@ -286,19 +290,27 @@ private fun RegistryLine(registry: RegistryInfo) {
         Modifier.fillMaxWidth().padding(horizontal = Spacing.xs).semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(painterResource(R.drawable.ic_database), null, tint = VerifiedFg, modifier = Modifier.size(20.dp))
+        // Gray (neutral) when no registry is loaded: nothing can be Verified yet.
+        Icon(
+            painterResource(R.drawable.ic_database),
+            null,
+            tint = if (registry.loaded) VerifiedFg else NeutralFg,
+            modifier = Modifier.size(20.dp),
+        )
         Spacer(Modifier.width(Spacing.s))
         Text(
-            "Using ${registry.source}",
+            if (registry.loaded) "Using ${registry.source}" else "No school registry yet, so networks can't be verified",
             style = MaterialTheme.typography.bodyMedium,
             color = Slate600,
             modifier = Modifier.weight(1f),
         )
-        Text(
-            "Updated ${registry.updatedAt}",
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-            color = VerifiedFg,
-        )
+        if (registry.loaded) {
+            Text(
+                "Updated ${registry.updatedAt}",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                color = VerifiedFg,
+            )
+        }
     }
 }
 

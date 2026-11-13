@@ -1,5 +1,8 @@
 package com.example.wave
 
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -83,7 +86,18 @@ fun WaveApp(container: AppContainer) {
                     demo.setLocationGranted(false)
                     resetEpoch++
                 },
+                realWifi = container.realWifi,
+                onSetRealWifi = { real ->
+                    container.setRealWifi(real)
+                    restartApp(context)
+                },
             )
         }
     }
+}
+
+/** Relaunch the app in a fresh process so AppContainer is rebuilt (used by the debug menu's data-source switch). */
+private fun restartApp(context: Context) {
+    context.startActivity(Intent.makeRestartActivityTask(ComponentName(context, MainActivity::class.java)))
+    Runtime.getRuntime().exit(0)
 }
