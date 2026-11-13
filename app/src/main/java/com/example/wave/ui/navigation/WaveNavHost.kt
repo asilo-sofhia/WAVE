@@ -96,6 +96,7 @@ fun WaveNavHost(
                 container = container,
                 onDisconnectNow = { nav.navigate(Routes.disconnect(it)) },
                 onOpenTab = { nav.navigateToTab(it) },
+                onOpenNetwork = { nav.navigate(Routes.detail(it)) },
             )
         }
         composable(

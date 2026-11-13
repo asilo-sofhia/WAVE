@@ -19,6 +19,19 @@ data class NetworkMetrics(
     val seenAtMillis: Long? = null,
 )
 
+/**
+ * Live facts about the connection you're on. Only exist after connecting, so they're separate from
+ * [NetworkMetrics] (which a scan gives for any network).
+ */
+data class ConnectionDetails(
+    val ipAddress: String?,
+    val gateway: String?,
+    val dnsServers: List<String>,
+    val linkSpeedMbps: Int?,
+    val txLinkSpeedMbps: Int?,
+    val rxLinkSpeedMbps: Int?,
+)
+
 enum class WifiStandard(val label: String) {
     LEGACY("802.11a/b/g"),
     WIFI_4("Wi-Fi 4 (802.11n)"),

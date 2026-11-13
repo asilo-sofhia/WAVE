@@ -34,6 +34,7 @@ import com.example.wave.model.NetworkUi
 import com.example.wave.model.Verdict
 import com.example.wave.model.WaveyMood
 import com.example.wave.model.waveyMoodFor
+import com.example.wave.ui.components.ConnectionCard
 import com.example.wave.ui.components.HeroCard
 import com.example.wave.ui.components.NetworkMetricsCard
 import com.example.wave.ui.components.PrimaryButton
@@ -43,6 +44,7 @@ import com.example.wave.ui.components.VerdictChip
 import com.example.wave.ui.components.WaveBackground
 import com.example.wave.ui.components.WaveScreen
 import com.example.wave.ui.components.Wavey
+import com.example.wave.ui.components.connectionRows
 import com.example.wave.ui.components.metricRows
 import com.example.wave.ui.components.openWifiSettings
 import com.example.wave.ui.screens.waveViewModel
@@ -51,9 +53,11 @@ import com.example.wave.ui.theme.Slate600
 import com.example.wave.ui.theme.Spacing
 import com.example.wave.ui.theme.WAVETheme
 import com.example.wave.ui.theme.WarningFg
-import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 
 // ---- State ----
 
@@ -63,13 +67,18 @@ sealed interface DetailUiState {
     data class Loaded(val network: NetworkUi) : DetailUiState
 }
 
+/** A scanned network is a snapshot; the network you're connected to updates live (signal, link speed, IP). */
 class DetailViewModel(repo: ScanRepository, bssid: String) : ViewModel() {
-    private val _state = MutableStateFlow<DetailUiState>(DetailUiState.Loading)
-    val state: StateFlow<DetailUiState> = _state.asStateFlow()
+    private val snapshot = repo.findNetwork(bssid)
 
-    init {
-        _state.value = repo.findNetwork(bssid)?.let { DetailUiState.Loaded(it) } ?: DetailUiState.NotFound
-    }
+    val state: StateFlow<DetailUiState> = repo.connection
+        .map { connected -> connected?.takeIf { it.bssid.equals(bssid, ignoreCase = true) } ?: snapshot }
+        .map { network -> network?.let { DetailUiState.Loaded(it) } ?: DetailUiState.NotFound }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            snapshot?.let { DetailUiState.Loaded(it) } ?: DetailUiState.NotFound,
+        )
 }
 
 // ---- Route ----
@@ -151,11 +160,16 @@ private fun Loaded(network: NetworkUi, onBack: () -> Unit, onOpenWifiSettings: (
 
     // Why: every check, measured vs. what the registry expects. Then the raw readings behind it.
     VerdictChecksCard(network)
+    network.connection?.let { ConnectionCard(it) }
     NetworkMetricsCard(network)
 
     // One clear action per verdict.
     when (network.verdict) {
-        Verdict.VERIFIED -> PrimaryButton("Connect in Wi-Fi settings", onClick = onOpenWifiSettings, icon = R.drawable.ic_wifi)
+        Verdict.VERIFIED -> PrimaryButton(
+            if (network.connection != null) "Open Wi-Fi settings" else "Connect in Wi-Fi settings",
+            onClick = onOpenWifiSettings,
+            icon = R.drawable.ic_wifi,
+        )
         Verdict.UNKNOWN -> SecondaryButton("Back to networks", onClick = onBack)
         Verdict.WARNING -> PrimaryButton("Back to safe networks", onClick = onBack, icon = R.drawable.ic_arrow_back)
     }
@@ -165,6 +179,7 @@ private fun Loaded(network: NetworkUi, onBack: () -> Unit, onOpenWifiSettings: (
 fun technicalRows(network: NetworkUi): List<Pair<String, String>> = buildList {
     add("SSID" to network.ssid)
     addAll(metricRows(network))
+    network.connection?.let { addAll(connectionRows(it)) }
     network.metrics?.let { add("Security flags" to it.capabilities.ifBlank { "(none)" }) }
     add("Verdict" to network.verdict.name)
     if (network.reasons.isNotEmpty()) add("Reason codes" to network.reasons.joinToString("\n") { it.name })

@@ -1,13 +1,15 @@
 package com.example.wave.data.wifi
 
 import com.example.wave.data.NetworkClassifier
+import com.example.wave.data.RegistryState
 import com.example.wave.data.ScanBatch
 import com.example.wave.data.ScanRepository
 import com.example.wave.data.WifiConnection
 import com.example.wave.data.WifiScanner
+import com.example.wave.data.registryOrNull
 import com.example.wave.domain.RegistryClassifier
+import com.example.wave.model.ConnectionDetails
 import com.example.wave.model.NetworkUi
-import com.example.wave.model.Registry
 import com.example.wave.model.RegistryInfo
 import com.example.wave.model.ScanObservation
 import com.example.wave.model.ScanResult
@@ -17,7 +19,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.stateIn
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -26,11 +27,12 @@ import java.time.format.DateTimeFormatter
  * The real ScanRepository: Android's Wi-Fi readings ([scanner]) + the school registry ([registry])
  * + the verdict rules ([classifier]). Screens see the same ScanRepository interface as with the fake.
  *
- * [registry] is null until lane 3 delivers signed-registry verification; until then every network is UNKNOWN.
+ * Only a registry whose signature checked out ever reaches [registry]; without one every network is UNKNOWN.
+ * The connected network carries LIVE readings (signal, frequency, link speed, IP) that update while connected.
  */
 class WifiScanRepository(
     private val scanner: WifiScanner,
-    private val registry: StateFlow<Registry?>,
+    private val registry: StateFlow<RegistryState>,
     private val classifier: NetworkClassifier,
     scope: CoroutineScope,
 ) : ScanRepository {
@@ -38,21 +40,16 @@ class WifiScanRepository(
     @Volatile private var lastScan: ScanResult? = null
 
     override val connection: StateFlow<NetworkUi?> =
-        combine(
-            // RSSI changes many times a minute; only a new AP or name is a new connection.
-            scanner.connection.distinctUntilChangedBy { it?.bssid to it?.ssid },
-            scanner.latest,
-            registry,
-        ) { conn, batch, reg -> classifyConnection(conn, batch, reg) }
+        combine(scanner.connection, scanner.latest, registry) { conn, batch, reg -> classifyConnection(conn, batch, reg) }
             .stateIn(scope, SharingStarted.Eagerly, null)
 
     override suspend fun scanNearby(): ScanResult {
         val batch = scanner.scan()
-        val reg = registry.value
+        val state = registry.value
         val networks = batch.observations
             .groupBy { it.bssid }.map { (_, same) -> same.maxBy { it.rssi } } // one row per access point
-            .map { classifier.classify(it, reg) }
-        return ScanResult(sortForList(networks), registryInfo(reg), batch.scannedAtMillis).also { lastScan = it }
+            .map { classifier.classify(it, state.registryOrNull) }
+        return ScanResult(sortForList(networks), registryInfo(state), batch.scannedAtMillis).also { lastScan = it }
     }
 
     override suspend fun checkConnection(): NetworkUi? {
@@ -60,15 +57,35 @@ class WifiScanRepository(
         return classifyConnection(scanner.connection.value, scanner.latest.value, registry.value)
     }
 
+    /** The connected network first, so its details (live) match what Home and Monitor show. */
     override fun findNetwork(bssid: String): NetworkUi? =
-        (lastScan?.networks.orEmpty() + listOfNotNull(connection.value))
+        (listOfNotNull(connection.value) + lastScan?.networks.orEmpty())
             .firstOrNull { it.bssid.equals(bssid, ignoreCase = true) }
 
     /** Null when not on Wi-Fi, or when Android hides the BSSID (no location permission). */
-    private fun classifyConnection(conn: WifiConnection?, batch: ScanBatch?, reg: Registry?): NetworkUi? {
+    private fun classifyConnection(conn: WifiConnection?, batch: ScanBatch?, state: RegistryState): NetworkUi? {
         val bssid = conn?.bssid ?: return null
-        val observation = batch?.observations?.firstOrNull { it.bssid == bssid } ?: conn.toObservation(bssid, batch)
-        return classifier.classify(observation, reg)
+        val scanned = batch?.observations?.firstOrNull { it.bssid == bssid } ?: conn.toObservation(bssid, batch)
+        // While connected, WifiInfo is fresher than the last scan: use its live signal and frequency.
+        val freq = conn.frequencyMhz ?: scanned.frequencyMhz
+        val live = scanned.copy(
+            rssi = conn.rssi ?: scanned.rssi,
+            frequencyMhz = freq,
+            band = bandForFrequency(freq),
+            channel = channelForFrequency(freq),
+            wifiStandard = conn.wifiStandard ?: scanned.wifiStandard,
+            timestampMillis = System.currentTimeMillis(),
+        )
+        return classifier.classify(live, state.registryOrNull).copy(
+            connection = ConnectionDetails(
+                ipAddress = conn.ipAddress,
+                gateway = conn.gateway,
+                dnsServers = conn.dnsServers,
+                linkSpeedMbps = conn.linkSpeedMbps,
+                txLinkSpeedMbps = conn.txLinkSpeedMbps,
+                rxLinkSpeedMbps = conn.rxLinkSpeedMbps,
+            ),
+        )
     }
 
     /** The connected AP wasn't in the last scan: build an observation from what WifiInfo tells us. */
@@ -91,13 +108,13 @@ class WifiScanRepository(
         )
     }
 
-    private fun registryInfo(reg: Registry?): RegistryInfo =
-        if (reg == null) {
-            RegistryInfo(source = "no school registry yet", updatedAt = "", loaded = false)
-        } else {
-            val date = reg.issuedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d"))
-            RegistryInfo(source = "school registry v${reg.version}", updatedAt = date)
-        }
+    private fun registryInfo(state: RegistryState): RegistryInfo {
+        val reg = state.registryOrNull
+            ?: return RegistryInfo(source = "no school registry yet", updatedAt = "", loaded = false)
+        val date = reg.issuedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d"))
+        val source = if (state is RegistryState.Stale) "out-of-date registry v${reg.version}" else "signed registry v${reg.version}"
+        return RegistryInfo(source = source, updatedAt = date)
+    }
 
     companion object {
         /**

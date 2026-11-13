@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import java.net.Inet4Address
 
 /**
  * Real Wi-Fi readings from Android's WifiManager and ConnectivityManager.
@@ -56,6 +58,8 @@ class AndroidWifiScanner(
     @Volatile private var waiter: CompletableDeferred<Boolean>? = null
     private var callback: ConnectivityManager.NetworkCallback? = null
     @Volatile private var wifiNetwork: Network? = null
+    @Volatile private var lastInfo: WifiInfo? = null
+    @Volatile private var lastLink: LinkProperties? = null
 
     init {
         // Results arrive for our scans and for scans other apps (or the system) start.
@@ -127,6 +131,7 @@ class AndroidWifiScanner(
                     wifiNetwork = network
                     update(caps.transportInfo as? WifiInfo)
                 }
+                override fun onLinkPropertiesChanged(network: Network, link: LinkProperties) = linkChanged(network, link)
                 override fun onLost(network: Network) = lost(network)
             }
         } else {
@@ -136,6 +141,7 @@ class AndroidWifiScanner(
                     @Suppress("DEPRECATION") // the only way on Android 10-11
                     update(wifi.connectionInfo)
                 }
+                override fun onLinkPropertiesChanged(network: Network, link: LinkProperties) = linkChanged(network, link)
                 override fun onLost(network: Network) = lost(network)
             }
         }
@@ -150,18 +156,47 @@ class AndroidWifiScanner(
     private fun lost(network: Network) {
         if (network == wifiNetwork) {
             wifiNetwork = null
+            lastInfo = null
+            lastLink = null
             _connection.value = null
         }
     }
 
+    private fun linkChanged(network: Network, link: LinkProperties) {
+        wifiNetwork = network
+        lastLink = link
+        emitConnection()
+    }
+
     private fun update(info: WifiInfo?) {
         if (info == null) return
+        lastInfo = info
+        emitConnection()
+    }
+
+    /** One live snapshot from the latest WifiInfo (radio) + LinkProperties (addresses). */
+    private fun emitConnection() {
+        val info = lastInfo ?: return
+        val link = lastLink
+        val addresses = link?.linkAddresses.orEmpty().map { it.address }
         _connection.value = WifiConnection(
             ssid = cleanSsid(info.ssid),
             bssid = bssidOrNull(info.bssid),
             frequencyMhz = info.frequency.takeIf { it > 0 },
             rssi = info.rssi.takeIf { it > -127 },
             capabilitiesHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) hintFor(info.currentSecurityType) else null,
+            linkSpeedMbps = info.linkSpeed.takeIf { it > 0 },
+            txLinkSpeedMbps = info.txLinkSpeedMbps.takeIf { it > 0 },
+            rxLinkSpeedMbps = info.rxLinkSpeedMbps.takeIf { it > 0 },
+            wifiStandard = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) standardOf(info.wifiStandard) else null,
+            // IPv4 first (what people recognise), else the first non-link-local IPv6.
+            ipAddress = (addresses.firstOrNull { it is Inet4Address } ?: addresses.firstOrNull { !it.isLinkLocalAddress })
+                ?.hostAddress,
+            // The router's IPv4 address if there is one (an IPv6 default route is often just fe80::1).
+            gateway = link?.routes.orEmpty().filter { it.isDefaultRoute && it.gateway != null }
+                .let { routes -> routes.firstOrNull { it.gateway is Inet4Address } ?: routes.firstOrNull() }
+                ?.gateway?.hostAddress,
+            dnsServers = link?.dnsServers.orEmpty().mapNotNull { it.hostAddress },
         )
     }
 

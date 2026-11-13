@@ -63,7 +63,7 @@ class RegistryClassifier(
         val nameDetail = when {
             !registryLoaded -> "No school registry is loaded yet, so WAVE can't confirm any network."
             o.ssid.isEmpty() -> "Hidden networks don't share their name, so WAVE can't look them up."
-            else -> "$name isn't on the school's registry, so WAVE has nothing to compare it with."
+            else -> "$name isn't on the signed registry, so WAVE has nothing to compare it with."
         }
         return listOf(
             VerdictCheck(CheckKind.NETWORK_NAME, CheckOutcome.UNKNOWN, nameDetail),
@@ -109,7 +109,7 @@ class RegistryClassifier(
         }
 
         return listOf(
-            VerdictCheck(CheckKind.NETWORK_NAME, CheckOutcome.PASSED, "${entry.ssid} is on the school's registry."),
+            VerdictCheck(CheckKind.NETWORK_NAME, CheckOutcome.PASSED, "${entry.ssid} is on the signed registry."),
             accessPoint,
             hardwareCheck(o, registered = true),
             security,

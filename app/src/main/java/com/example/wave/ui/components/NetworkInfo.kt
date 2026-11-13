@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.example.wave.R
 import com.example.wave.data.fake.FakeFixtures
 import com.example.wave.model.CheckOutcome
+import com.example.wave.model.ConnectionDetails
 import com.example.wave.model.NetworkUi
 import com.example.wave.model.Verdict
 import com.example.wave.model.VerdictCheck
@@ -121,7 +122,11 @@ fun NetworkMetricsCard(network: NetworkUi, modifier: Modifier = Modifier, nowMil
     val m = network.metrics
     WaveCard(modifier.fillMaxWidth()) {
         CardTitle("Wi-Fi details")
-        Text("Read from the scan, before connecting.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
+        Text(
+            if (network.connection != null) "Live from your connection." else "Read from the scan, before connecting.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Slate600,
+        )
         Spacer(Modifier.height(Spacing.s))
         rows.forEach { (label, value) ->
             DetailRow(label, value, monospace = label == "BSSID")
@@ -133,16 +138,50 @@ fun NetworkMetricsCard(network: NetworkUi, modifier: Modifier = Modifier, nowMil
             stacked = true,
             showDivider = false,
         )
-        Spacer(Modifier.height(Spacing.s))
-        Row(verticalAlignment = Alignment.Top) {
-            Icon(painterResource(R.drawable.ic_info), null, tint = Slate600, modifier = Modifier.size(18.dp).padding(top = 2.dp))
-            Spacer(Modifier.width(Spacing.s))
-            Text(
-                "IP address, link speed and the internet-provider check are only available after you connect.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Slate600,
-            )
+        if (network.connection == null) {
+            Spacer(Modifier.height(Spacing.s))
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(painterResource(R.drawable.ic_info), null, tint = Slate600, modifier = Modifier.size(18.dp).padding(top = 2.dp))
+                Spacer(Modifier.width(Spacing.s))
+                Text(
+                    "IP address, link speed and the internet-provider check are only available after you connect.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Slate600,
+                )
+            }
         }
+    }
+}
+
+/** "Your connection": live facts Android only gives for the network you're on (IP, router, DNS, link speed). */
+@Composable
+fun ConnectionCard(details: ConnectionDetails, modifier: Modifier = Modifier) {
+    val rows = connectionRows(details)
+    WaveCard(modifier.fillMaxWidth()) {
+        CardTitle("Your connection")
+        Text("Live from Android while you're connected.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
+        Spacer(Modifier.height(Spacing.s))
+        rows.forEachIndexed { i, (label, value) ->
+            DetailRow(label, value, monospace = label != "Link speed", showDivider = i != rows.lastIndex)
+        }
+    }
+}
+
+fun connectionRows(c: ConnectionDetails): List<Pair<String, String>> = listOf(
+    "IP address" to (c.ipAddress ?: NOT_REPORTED),
+    "Gateway (router)" to (c.gateway ?: NOT_REPORTED),
+    "DNS servers" to c.dnsServers.joinToString(", ").ifEmpty { NOT_REPORTED },
+    "Link speed" to linkSpeedLabel(c),
+)
+
+/** "144 Mbps" or "Up 144 · Down 130 Mbps" when Android reports each direction. */
+fun linkSpeedLabel(c: ConnectionDetails): String {
+    val tx = c.txLinkSpeedMbps
+    val rx = c.rxLinkSpeedMbps
+    return when {
+        tx != null && rx != null -> "Up $tx · Down $rx Mbps"
+        c.linkSpeedMbps != null -> "${c.linkSpeedMbps} Mbps"
+        else -> NOT_REPORTED
     }
 }
 
@@ -158,7 +197,7 @@ fun metricRows(network: NetworkUi, nowMillis: Long = System.currentTimeMillis())
         "Frequency" to (m?.let { "${it.frequencyMhz} MHz" } ?: NOT_REPORTED),
         "Channel width" to (m?.channelWidthMhz?.let { "$it MHz" } ?: NOT_REPORTED),
         "Wi-Fi standard" to (m?.wifiStandard?.label ?: NOT_REPORTED),
-        "Last seen" to lastSeenLabel(m?.seenAtMillis, nowMillis),
+        "Last seen" to if (network.connection != null) "Now (connected)" else lastSeenLabel(m?.seenAtMillis, nowMillis),
     )
 }
 

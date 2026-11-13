@@ -5,6 +5,7 @@ import com.example.wave.data.ExitPathChecker
 import com.example.wave.data.LocationPermissionGate
 import com.example.wave.data.NetworkClassifier
 import com.example.wave.data.QrVerifier
+import com.example.wave.data.RegistryRepository
 import com.example.wave.data.ScanRepository
 import com.example.wave.data.exitpath.UnavailableExitPathChecker
 import com.example.wave.data.fake.FakeExitPathChecker
@@ -12,23 +13,22 @@ import com.example.wave.data.fake.FakeLocationPermissionGate
 import com.example.wave.data.fake.FakeQrVerifier
 import com.example.wave.data.fake.FakeScanRepository
 import com.example.wave.data.fake.ScenarioStore
+import com.example.wave.data.registry.BundledRegistryRepository
 import com.example.wave.data.wifi.AndroidLocationPermissionGate
 import com.example.wave.data.wifi.AndroidWifiScanner
 import com.example.wave.data.wifi.WifiScanRepository
 import com.example.wave.domain.RegistryClassifier
-import com.example.wave.model.Registry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Manual DI. Screens only see the interfaces below; real and fake implementations are swapped here only.
  *
  * [realWifi] (default on, switchable in the debug menu, applied on restart):
- * - on:  real Wi-Fi scanning, connection and location permission. Registry and exit path aren't built yet,
- *        so every network is UNKNOWN and the exit path stays PENDING.
+ * - on:  real Wi-Fi scanning, connection and location permission, judged against the signed registry bundled
+ *        in the app (debug builds: your home test registry, if backend/registry has a signed one). The exit-path
+ *        server isn't built yet, so the exit path stays PENDING.
  * - off: the demo scenarios (fake data), exactly as in the frontend phase.
  * QR verification is fake in both modes until lane 3 delivers it.
  */
@@ -59,8 +59,8 @@ class AppContainer(context: Context) {
 
     val locationPermission: LocationPermissionGate = androidPermissionGate ?: FakeLocationPermissionGate(store)
 
-    /** Null until lane 3 delivers signed-registry download + verification. */
-    private val registry: StateFlow<Registry?> = MutableStateFlow(null)
+    /** The signed registry. Only trusted after its Ed25519 signature checks out; Missing until then. */
+    val registryRepository: RegistryRepository = BundledRegistryRepository(context, appScope)
 
     val classifier: NetworkClassifier = RegistryClassifier()
 
@@ -68,7 +68,7 @@ class AppContainer(context: Context) {
         if (realWifi) {
             WifiScanRepository(
                 scanner = AndroidWifiScanner(context, appScope, locationPermission.granted),
-                registry = registry,
+                registry = registryRepository.state,
                 classifier = classifier,
                 scope = appScope,
             )

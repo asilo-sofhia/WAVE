@@ -30,6 +30,8 @@ data class NetworkUi(
     val metrics: NetworkMetrics? = null,
     /** Every check behind [verdict], passed or not. Empty when no checks ran. */
     val checks: List<VerdictCheck> = emptyList(),
+    /** Set only for the network you're connected to: IP, gateway, DNS, link speed. */
+    val connection: ConnectionDetails? = null,
 )
 
 /** [loaded] = false when no school registry is available yet, so nothing can be Verified. */
