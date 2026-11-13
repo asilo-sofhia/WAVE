@@ -160,6 +160,67 @@ def test_server_holds_no_private_key_material():
         assert "PRIVATE KEY" not in text and "private.pem" not in text, path
 
 
+# ---------------- ASN dataset ----------------
+FIXTURE_ROWS = [
+    "1.0.0.0\t1.0.0.255\t13335\tUS\tCLOUDFLARENET - Cloudflare, Inc.",
+    "1.0.1.0\t1.0.3.255\t0\tNone\tNot routed",
+    "203.177.0.0\t203.177.255.255\t4775\tPH\tGLOBE-TELECOM-AS - Globe Telecoms",
+    "203.178.0.0\t203.178.0.255\t9299\tPH\tIPG-AS-AP - Philippine Long Distance Telephone Company",
+    "131.226.96.0\t131.226.127.255\t139831\tPH\tDTC-AS-AP - DITO TELECOMMUNITY CORP.",
+    "this line is broken",
+    "2001:4860::\t2001:4860:ffff:ffff:ffff:ffff:ffff:ffff\t15169\tUS\tGOOGLE - Google LLC",
+    "2001:db8::\t2001:db8::ffff\t0\tNone\tNot routed",
+]
+
+
+@pytest.fixture()
+def asn_file(tmp_path):
+    import gzip
+
+    path = tmp_path / "ip2asn-combined.tsv.gz"
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        f.write("\n".join(FIXTURE_ROWS) + "\n")
+    return path
+
+
+def test_asn_lookup_ipv4_ipv6_boundaries_and_gaps(asn_file):
+    import ipaddress
+
+    from server.asn_db import AsnDatabase
+
+    db = AsnDatabase.load(asn_file)
+    assert db.ranges == 5  # 2 "Not routed" rows and 1 broken row skipped
+
+    def asn(ip):
+        found = db.lookup(ipaddress.ip_address(ip))
+        return found.asn if found else None
+
+    assert asn("203.177.0.0") == 4775          # first address of a range
+    assert asn("203.177.255.255") == 4775      # last address of a range
+    assert asn("203.178.0.0") == 9299          # the very next address is the next range
+    assert asn("203.176.255.255") is None      # just before the range: a gap
+    assert asn("100.0.0.1") is None            # nowhere near any range
+    assert asn("1.0.2.7") is None              # "Not routed" (ASN 0) never answers
+    assert asn("131.226.100.1") == 139831
+    assert asn("2001:4860:4860::8888") == 15169
+    assert asn("2001:db8::1") is None          # IPv6 "Not routed"
+    assert db.lookup(ipaddress.ip_address("1.0.0.1")).as_name == "CLOUDFLARENET - Cloudflare, Inc."
+
+
+def test_health_reports_the_asn_dataset(tmp_path, asn_file):
+    with client(settings_for(tmp_path, asn_db=asn_file)) as c:
+        body = c.get("/v1/health").json()
+    assert body["asn_db_loaded"] is True
+    assert len(body["asn_db_date"]) == 10  # YYYY-MM-DD
+
+
+def test_server_starts_with_a_corrupt_asn_file(tmp_path):
+    bad = tmp_path / "bad.tsv.gz"
+    bad.write_bytes(b"not gzip at all")
+    with client(settings_for(tmp_path, asn_db=bad)) as c:
+        assert c.get("/v1/health").json()["asn_db_loaded"] is False
+
+
 # ---------------- config ----------------
 def test_invalid_proxy_settings_refuse_to_start():
     with pytest.raises(ConfigError):
