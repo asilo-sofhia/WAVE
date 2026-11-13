@@ -3,6 +3,7 @@ package com.example.wave.ui.components
 import androidx.annotation.DrawableRes
 import androidx.compose.ui.graphics.Color
 import com.example.wave.R
+import com.example.wave.model.CheckOutcome
 import com.example.wave.model.ExitPathStatus
 import com.example.wave.model.Verdict
 import com.example.wave.ui.theme.NeutralBg
@@ -34,4 +35,11 @@ fun ExitPathStatus.style(): StatusStyle = when (this) {
     ExitPathStatus.FAILED -> StatusStyle(WarningFg, WarningBg, R.drawable.ic_warning, "Failed")
 }
 
-val NotCheckedStyle = StatusStyle(NeutralFg, NeutralBg, R.drawable.ic_help, "Not checked")
+fun CheckOutcome.style(): StatusStyle = when (this) {
+    CheckOutcome.PASSED -> StatusStyle(VerifiedFg, VerifiedBg, R.drawable.ic_check, "Passed")
+    CheckOutcome.FAILED -> StatusStyle(WarningFg, WarningBg, R.drawable.ic_warning, "Failed")
+    CheckOutcome.UNKNOWN -> StatusStyle(UnknownFg, UnknownBg, R.drawable.ic_help, "Unknown")
+    CheckOutcome.SKIPPED -> StatusStyle(NeutralFg, NeutralBg, R.drawable.ic_remove, "Skipped")
+}
+
+val NotCheckedStyle =StatusStyle(NeutralFg, NeutralBg, R.drawable.ic_help, "Not checked")

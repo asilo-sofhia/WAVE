@@ -67,6 +67,8 @@ import com.example.wave.ui.components.TopBarAction
 import com.example.wave.ui.components.WaveBackground
 import com.example.wave.ui.components.WaveCard
 import com.example.wave.ui.components.WaveTopBar
+import com.example.wave.ui.components.rememberNowMillis
+import com.example.wave.ui.components.timeAgo
 import com.example.wave.ui.screens.waveViewModel
 import com.example.wave.ui.theme.BrandIcon
 import com.example.wave.ui.theme.Divider
@@ -230,7 +232,8 @@ private fun SummaryCard(state: NearbyUiState, onRefresh: () -> Unit) {
         NearbyUiState.Loading -> "Scanning…" to "Checking each network against the registry."
         NearbyUiState.NeedsPermission -> "Location is off" to "Needed to list nearby Wi-Fi."
         NearbyUiState.Empty -> "No networks found" to "Last scanned just now"
-        is NearbyUiState.Loaded -> "${state.result.networks.size} networks found" to "Last scanned just now"
+        is NearbyUiState.Loaded -> "${state.result.networks.size} networks found" to
+            "Last scanned ${timeAgo(state.result.scannedAtMillis, rememberNowMillis())}"
     }
     Row(
         Modifier
@@ -343,7 +346,8 @@ private fun PreviewOf(state: NearbyUiState) = WAVETheme {
     WaveBackground { NearbyScreen(state, {}, {}, {}) }
 }
 
-private fun loaded(vararg n: NetworkUi) = NearbyUiState.Loaded(ScanResult(n.toList(), FakeFixtures.registry, 0L))
+private fun loaded(vararg n: NetworkUi) =
+    NearbyUiState.Loaded(ScanResult(n.toList(), FakeFixtures.registry, System.currentTimeMillis()))
 
 @Preview(showSystemUi = true, name = "Mockup list (verified, warning, unknown)")
 @Composable

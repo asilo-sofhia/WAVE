@@ -33,18 +33,17 @@ import com.example.wave.di.AppContainer
 import com.example.wave.model.NetworkUi
 import com.example.wave.model.Verdict
 import com.example.wave.model.WaveyMood
-import com.example.wave.model.signalQuality
 import com.example.wave.model.waveyMoodFor
 import com.example.wave.ui.components.HeroCard
+import com.example.wave.ui.components.NetworkMetricsCard
 import com.example.wave.ui.components.PrimaryButton
-import com.example.wave.ui.components.ReasonList
 import com.example.wave.ui.components.SecondaryButton
-import com.example.wave.ui.components.TechDetailsToggle
+import com.example.wave.ui.components.VerdictChecksCard
 import com.example.wave.ui.components.VerdictChip
 import com.example.wave.ui.components.WaveBackground
-import com.example.wave.ui.components.WaveCard
 import com.example.wave.ui.components.WaveScreen
 import com.example.wave.ui.components.Wavey
+import com.example.wave.ui.components.metricRows
 import com.example.wave.ui.components.openWifiSettings
 import com.example.wave.ui.screens.waveViewModel
 import com.example.wave.ui.theme.Navy900
@@ -150,13 +149,9 @@ private fun Loaded(network: NetworkUi, onBack: () -> Unit, onOpenWifiSettings: (
         }
     }
 
-    if (network.reasons.isNotEmpty()) {
-        WaveCard(Modifier.fillMaxWidth()) {
-            Text("Why WAVE is worried", style = MaterialTheme.typography.titleMedium, color = Navy900)
-            Spacer(Modifier.height(Spacing.m))
-            ReasonList(network.reasons)
-        }
-    }
+    // Why: every check, measured vs. what the registry expects. Then the raw readings behind it.
+    VerdictChecksCard(network)
+    NetworkMetricsCard(network)
 
     // One clear action per verdict.
     when (network.verdict) {
@@ -164,16 +159,13 @@ private fun Loaded(network: NetworkUi, onBack: () -> Unit, onOpenWifiSettings: (
         Verdict.UNKNOWN -> SecondaryButton("Back to networks", onClick = onBack)
         Verdict.WARNING -> PrimaryButton("Back to safe networks", onClick = onBack, icon = R.drawable.ic_arrow_back)
     }
-
-    TechDetailsToggle(technicalRows(network))
 }
 
+/** Raw rows for "Technical details" toggles (Disconnect-now): SSID, every metric, verdict and reason codes. */
 fun technicalRows(network: NetworkUi): List<Pair<String, String>> = buildList {
     add("SSID" to network.ssid)
-    add("BSSID" to network.bssid)
-    add("Security" to network.security.label)
-    add("Band" to network.band.label)
-    add("Signal" to "${network.signal} dBm (${signalQuality(network.signal).label})")
+    addAll(metricRows(network))
+    network.metrics?.let { add("Security flags" to it.capabilities.ifBlank { "(none)" }) }
     add("Verdict" to network.verdict.name)
     if (network.reasons.isNotEmpty()) add("Reason codes" to network.reasons.joinToString("\n") { it.name })
 }
