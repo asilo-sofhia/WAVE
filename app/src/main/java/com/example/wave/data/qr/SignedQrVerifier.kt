@@ -33,13 +33,15 @@ class SignedQrVerifier(
 
     override suspend fun verify(payload: String): QrVerification = withContext(Dispatchers.Default) {
         val check = WifiQr.verify(payload.trim(), trustedKeys, today())
+        val reg = registry.value.registryOrNull
         QrVerification(
             result = check.result,
-            network = networkFrom(check, registry.value.registryOrNull),
+            network = networkFrom(check, reg),
             signer = check.keyId,
             expiresAt = check.until?.format(DISPLAY_DATE),
             rawPayload = WifiQr.maskPassword(payload), // never show the Wi-Fi password on screen
             credentials = credentialsFrom(check),
+            inRegistry = reg?.let { r -> check.ssid?.let { s -> r.networks.any { it.ssid == s && qrTypeMatches(check.type, it.security) } } },
         )
     }
 

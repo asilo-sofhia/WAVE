@@ -12,6 +12,8 @@ data class QrVerification(
     val rawPayload: String,
     /** What's needed to join the network. Null when the code must not be used (changed, expired, unreadable). */
     val credentials: WifiCredentials? = null,
+    /** Is the code's network (name + security) on the signed registry? Null = no registry loaded. */
+    val inRegistry: Boolean? = null,
 )
 
 /** How a Wi-Fi QR code says to join (its T field). */

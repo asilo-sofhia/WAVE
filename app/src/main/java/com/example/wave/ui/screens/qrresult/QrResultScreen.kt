@@ -3,30 +3,53 @@ package com.example.wave.ui.screens.qrresult
 import android.content.ActivityNotFoundException
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -44,29 +67,33 @@ import com.example.wave.model.QrVerification
 import com.example.wave.model.Verdict
 import com.example.wave.model.WaveyMood
 import com.example.wave.model.signalQuality
-import com.example.wave.model.verdict
 import com.example.wave.model.waveyMoodFor
 import com.example.wave.ui.components.DetailRow
-import com.example.wave.ui.components.HeroCard
-import com.example.wave.ui.components.IconTile
-import com.example.wave.ui.components.NotCheckedStyle
+import com.example.wave.ui.components.FitText
 import com.example.wave.ui.components.PrimaryButton
 import com.example.wave.ui.components.SecondaryButton
-import com.example.wave.ui.components.StatusPill
-import com.example.wave.ui.components.TechDetailsToggle
 import com.example.wave.ui.components.WaveBackground
 import com.example.wave.ui.components.WaveCard
 import com.example.wave.ui.components.WaveScreen
+import com.example.wave.ui.components.WaveTextButton
 import com.example.wave.ui.components.Wavey
+import com.example.wave.ui.components.drawSparkle
 import com.example.wave.ui.components.openWifiSettings
-import com.example.wave.ui.components.style
 import com.example.wave.ui.navigation.Tab
 import com.example.wave.ui.screens.waveViewModel
+import com.example.wave.ui.theme.BrandIcon
+import com.example.wave.ui.theme.Divider
 import com.example.wave.ui.theme.Navy900
-import com.example.wave.ui.theme.Slate600
+import com.example.wave.ui.theme.NeutralFg
 import com.example.wave.ui.theme.Spacing
+import com.example.wave.ui.theme.UnknownBg
+import com.example.wave.ui.theme.UnknownFg
+import com.example.wave.ui.theme.VerifiedBg
+import com.example.wave.ui.theme.VerifiedFg
 import com.example.wave.ui.theme.WAVETheme
+import com.example.wave.ui.theme.WarningBg
 import com.example.wave.ui.theme.WarningFg
+import com.example.wave.ui.theme.WaveShapes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -163,6 +190,7 @@ fun QrResultRoute(
     payload: String,
     onBack: () -> Unit,
     onOpenTab: (Tab) -> Unit,
+    onOpenNetwork: (bssid: String) -> Unit = {},
 ) {
     val vm = waveViewModel {
         QrResultViewModel(container.qrVerifier, container.scanRepository, container.locationPermission, payload)
@@ -187,6 +215,7 @@ fun QrResultRoute(
         state = state,
         onBack = onBack,
         onOpenTab = onOpenTab,
+        onOpenNetwork = onOpenNetwork,
         onScanAgain = vm::checkNearby,
         onOpenWifiSettings = { openWifiSettings(context) },
         onConnect = { v, pinBssid ->
@@ -213,47 +242,85 @@ fun QrResultRoute(
     )
 }
 
-// ---- Screen ----
+// ---- Presentation ----
 
-/**
- * CONTRACT §3: a VALID signature for a network that isn't on the registry is Unknown, not Verified.
- * (Fake fixtures always carry a registered network, so demo results are unchanged.)
- */
-private val QrVerification.signedButUnregistered: Boolean
-    get() = result == QrResult.VALID && network != null && network.verdict != Verdict.VERIFIED
+/** The hero's overall tone (CLAUDE.md: Verified = green, Warning = red, Unknown = yellow; never color alone). */
+private enum class Tone(val fg: Color, val bg: Color, @param:DrawableRes val badge: Int, val badgeLabel: String) {
+    VALID(VerifiedFg, VerifiedBg, R.drawable.ic_check, "valid"),
+    INVALID(WarningFg, WarningBg, R.drawable.ic_close, "invalid"),
+    UNVERIFIED(UnknownFg, UnknownBg, R.drawable.ic_help, "unverified"),
+}
 
-private val QrVerification.shownVerdict: Verdict
-    get() = if (signedButUnregistered) Verdict.UNKNOWN else result.verdict
+/** One line in the result card: value color + icon tint follow its own status. */
+private data class ResultRow(@param:DrawableRes val icon: Int, val label: String, val value: String, val fg: Color)
 
-private data class QrCopy(val chip: String, val title: String, val body: String)
+private val QrVerification.registryMatch: Boolean?
+    get() = inRegistry ?: network?.let { it.verdict == Verdict.VERIFIED } // fake fixtures carry only the verdict
 
-private fun copyFor(v: QrVerification): QrCopy {
-    val ssid = v.network?.ssid ?: "this network"
-    return when (v.result) {
-        QrResult.VALID -> if (v.signedButUnregistered) {
-            QrCopy("Not registered", "Signed by ${v.signer}", "The code is genuine, but $ssid isn't on the registry.")
-        } else {
-            QrCopy("Valid", "Signed by ${v.signer}", "This QR code is genuine and hasn't been changed.")
-        }
-        QrResult.BAD_SIGNATURE -> QrCopy(
-            "Changed", "This QR code was changed",
-            "Someone edited it after it was signed. It may send you to a fake network. Don't use it.",
-        )
-        QrResult.EXPIRED -> QrCopy(
-            "Expired", "This QR code has expired",
-            "It was valid until ${v.expiresAt}. Ask the ICT office for a new one.",
-        )
-        QrResult.UNSIGNED -> QrCopy(
-            "Unsigned", "This QR code isn't signed",
-            "Anyone can make a code like this, so WAVE checks the network itself instead.",
-        )
-        QrResult.UNKNOWN_KEY -> QrCopy(
-            "Unknown signer", "Signed by someone WAVE doesn't know",
-            "The signature isn't from a trusted issuer, so WAVE checks the network itself instead.",
-        )
-        QrResult.MALFORMED -> QrCopy("Not Wi-Fi", "This isn't a Wi-Fi QR code", "The code doesn't contain any Wi-Fi details.")
+private fun QrResultUiState.Done.advice(): QrJoinAdvice? = (nearby as? NearbyCheck.Done)?.advice
+
+private fun toneOf(s: QrResultUiState.Done): Tone {
+    val v = s.verification
+    val advice = s.advice()
+    return when {
+        advice == QrJoinAdvice.CodeUnsafe || advice is QrJoinAdvice.FakeNearby -> Tone.INVALID
+        v.result == QrResult.BAD_SIGNATURE || v.result == QrResult.EXPIRED -> Tone.INVALID
+        v.result == QrResult.VALID && v.registryMatch == true -> Tone.VALID
+        else -> Tone.UNVERIFIED
     }
 }
+
+private fun heroText(s: QrResultUiState.Done, tone: Tone): Pair<String, String> {
+    val v = s.verification
+    val ssid = v.network?.ssid ?: "this network"
+    return when {
+        s.advice() is QrJoinAdvice.FakeNearby -> "Fake network nearby" to
+            "The access point using $ssid here isn't the real one. Don't connect."
+        tone == Tone.VALID -> "Valid Wi-Fi QR Code" to "The QR code is authenticated and matches the trusted registry."
+        v.result == QrResult.BAD_SIGNATURE -> "Invalid QR Code" to "Someone changed this code after it was signed. Don't use it."
+        v.result == QrResult.EXPIRED -> "Expired QR Code" to "It was valid until ${v.expiresAt}. Ask the ICT office for a new one."
+        v.result == QrResult.MALFORMED -> "Not a Wi-Fi QR Code" to "The code doesn't contain any Wi-Fi details."
+        else -> "Unverified QR Code" to "The QR code is not recognized or does not match the registry."
+    }
+}
+
+private fun rowsOf(s: QrResultUiState.Done, tone: Tone): List<ResultRow> {
+    val v = s.verification
+    // Negative facts take the hero's tone (red when the code is unsafe, yellow when it's just unverified).
+    val bad = if (tone == Tone.INVALID) WarningFg else UnknownFg
+    val signature = when (v.result) {
+        QrResult.VALID -> "Valid" to VerifiedFg
+        QrResult.UNSIGNED -> "Not signed" to bad
+        QrResult.UNKNOWN_KEY -> "Unknown signer" to bad
+        QrResult.BAD_SIGNATURE -> "Not valid" to WarningFg
+        QrResult.EXPIRED -> "Expired" to WarningFg
+        QrResult.MALFORMED -> "Unreadable" to WarningFg
+    }
+    val registry = when (v.registryMatch) {
+        true -> "Matched" to VerifiedFg
+        false -> "Not found" to bad
+        null -> "No registry" to NeutralFg
+    }
+    val nearby: Pair<String, Color>? = when (val n = s.nearby) {
+        NearbyCheck.Checking -> "Checking…" to NeutralFg
+        NearbyCheck.NoLocation -> "Location off" to NeutralFg
+        is NearbyCheck.Done -> when (n.advice) {
+            QrJoinAdvice.CodeUnsafe -> null
+            QrJoinAdvice.NotInRange -> "Not in range" to NeutralFg
+            is QrJoinAdvice.Connect -> "Verified" to VerifiedFg
+            is QrJoinAdvice.FakeNearby -> "Fake copy" to WarningFg
+            is QrJoinAdvice.Unverified -> "Not verified" to UnknownFg
+        }
+    }
+    return listOfNotNull(
+        ResultRow(R.drawable.ic_wifi, "SSID", v.network?.ssid ?: "—", Navy900),
+        ResultRow(R.drawable.ic_shield_outline, "Signature", signature.first, signature.second),
+        ResultRow(R.drawable.ic_database, "Registry Match", registry.first, registry.second),
+        nearby?.let { ResultRow(R.drawable.ic_location, "Nearby network", it.first, it.second) },
+    )
+}
+
+// ---- Screen (layout follows the "QR Verification Result" mockup) ----
 
 @Composable
 fun QrResultScreen(
@@ -261,12 +328,13 @@ fun QrResultScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenTab: (Tab) -> Unit = {},
+    onOpenNetwork: (bssid: String) -> Unit = {},
     onScanAgain: () -> Unit = {},
     onOpenWifiSettings: () -> Unit = {},
     /** Join the code's network; the BSSID pins it to the verified access point when a fake shares the name. */
     onConnect: (QrVerification, pinBssid: String?) -> Unit = { _, _ -> },
 ) {
-    WaveScreen(title = "QR result", onBack = onBack, modifier = modifier) {
+    WaveScreen(title = "QR Verification Result", onBack = onBack, modifier = modifier) {
         when (state) {
             QrResultUiState.Loading -> Column(
                 Modifier.fillMaxWidth().padding(top = Spacing.xxl).semantics { liveRegion = LiveRegionMode.Polite },
@@ -277,7 +345,7 @@ fun QrResultScreen(
                 Text("Checking the QR code's signature…", style = MaterialTheme.typography.titleMedium, color = Navy900)
                 CircularProgressIndicator()
             }
-            is QrResultUiState.Done -> Done(state, onBack, onOpenTab, onScanAgain, onOpenWifiSettings, onConnect)
+            is QrResultUiState.Done -> Done(state, onBack, onOpenTab, onOpenNetwork, onScanAgain, onOpenWifiSettings, onConnect)
         }
     }
 }
@@ -287,120 +355,180 @@ private fun Done(
     state: QrResultUiState.Done,
     onBack: () -> Unit,
     onOpenTab: (Tab) -> Unit,
+    onOpenNetwork: (String) -> Unit,
     onScanAgain: () -> Unit,
     onOpenWifiSettings: () -> Unit,
     onConnect: (QrVerification, String?) -> Unit,
 ) {
     val v = state.verification
-    val copy = copyFor(v)
-    val verdict = v.shownVerdict
+    val tone = toneOf(state)
+    val (title, body) = heroText(state, tone)
+    var detailsOpen by rememberSaveable { mutableStateOf(false) }
     val ssid = v.credentials?.ssid ?: v.network?.ssid ?: "this network"
-
-    HeroCard(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Wavey(if (v.signedButUnregistered) WaveyMood.CURIOUS else waveyMoodFor(v.result), size = 150.dp)
-            Spacer(Modifier.height(Spacing.s))
-            StatusPill(verdict.style(), label = copy.chip)
-            Spacer(Modifier.height(Spacing.m))
-            Text(
-                copy.title,
-                style = MaterialTheme.typography.titleLarge,
-                color = if (verdict == Verdict.WARNING) WarningFg else Navy900,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.semantics { heading() },
-            )
-            Spacer(Modifier.height(Spacing.xs))
-            Text(copy.body, style = MaterialTheme.typography.bodyLarge, color = Slate600, textAlign = TextAlign.Center)
-        }
+    // Wavey's mood follows the code (HAPPY needs a passed exit-path check, so never here).
+    val mood = when (tone) {
+        Tone.VALID -> WaveyMood.NORMAL
+        Tone.INVALID -> WaveyMood.UNCOMFORTABLE
+        Tone.UNVERIFIED -> if (v.result == QrResult.VALID) WaveyMood.CURIOUS else waveyMoodFor(v.result)
     }
 
-    NearbyCard(ssid, state.nearby)
-
-    v.network?.let { network ->
-        WaveCard(Modifier.fillMaxWidth()) {
-            Text("What the code says", style = MaterialTheme.typography.titleMedium, color = Navy900)
-            DetailRow("Network", network.ssid)
-            DetailRow("Security", network.security.label, showDivider = false)
-        }
-    }
-
+    ResultHero(tone, mood, title, body)
+    ResultCard(rowsOf(state, tone))
     JoinStatusLine(ssid, state.join)
-    Actions(state, ssid, onBack, onOpenTab, onScanAgain, onOpenWifiSettings, onConnect)
-
-    TechDetailsToggle(
-        buildList {
-            add("Result code" to v.result.name)
-            add("Signer" to (v.signer ?: "None"))
-            add("Expires" to (v.expiresAt ?: "-"))
-            add("Raw payload" to v.rawPayload)
+    Buttons(
+        state = state,
+        tone = tone,
+        onConnect = { pin -> onConnect(v, pin) },
+        onViewDetails = {
+            val fake = (state.advice() as? QrJoinAdvice.FakeNearby)?.accessPoint
+            if (fake != null) onOpenNetwork(fake.bssid) else detailsOpen = !detailsOpen
         },
+        onScanAnother = onBack,
+        onScanAgain = onScanAgain,
+        onOpenTab = onOpenTab,
+        onOpenWifiSettings = onOpenWifiSettings,
     )
+    if (tone == Tone.VALID) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            WaveTextButton(if (detailsOpen) "Hide details" else "View details", onClick = { detailsOpen = !detailsOpen })
+        }
+    }
+    AnimatedVisibility(detailsOpen) { DetailsCard(state) }
 }
 
-/** "Is this network nearby?": the access points broadcasting the code's name, and what WAVE makes of them. */
+/** Tinted card: Wavey with a QR tile and a ✓ / ✕ / ? badge, then a big colored title and one line. */
 @Composable
-private fun NearbyCard(ssid: String, nearby: NearbyCheck) {
-    val (style, title, body) = when (nearby) {
-        NearbyCheck.Checking -> Triple(NotCheckedStyle.copy(label = "Checking"), "Looking for $ssid nearby…", null)
-        NearbyCheck.NoLocation -> Triple(
-            NotCheckedStyle.copy(label = "Location off"), "Can't look for $ssid",
-            "Android needs location access to list nearby Wi-Fi.",
-        )
-        is NearbyCheck.Done -> when (val a = nearby.advice) {
-            QrJoinAdvice.CodeUnsafe -> return // the code itself is the problem; nothing to look for
-            QrJoinAdvice.NotInRange -> Triple(
-                NotCheckedStyle.copy(label = "Not found"), "$ssid isn't in range",
-                "Move closer to the network and scan again.",
-            )
-            is QrJoinAdvice.Connect -> Triple(
-                Verdict.VERIFIED.style(), "Verified access point nearby",
-                apLine(a.accessPoint) + if (a.pinBssid != null) {
-                    "\nA fake copy is also nearby. WAVE will connect only to the verified one."
-                } else {
-                    ""
-                },
-            )
-            is QrJoinAdvice.FakeNearby -> Triple(
-                Verdict.WARNING.style(), "Only a fake copy is nearby",
-                "The access point using this name isn't the real one" +
-                    (a.accessPoint.reasons.firstOrNull()?.let { ": ${it.title.lowercase()}." } ?: ".") +
-                    " Don't connect.",
-            )
-            is QrJoinAdvice.Unverified -> Triple(
-                Verdict.UNKNOWN.style(), "Can't verify this network",
-                "$ssid is nearby but isn't on the registry. If you join, avoid logging in to important accounts.\n" +
-                    apLine(a.accessPoint),
-            )
+private fun ResultHero(tone: Tone, mood: WaveyMood, title: String, body: String) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .shadow(14.dp, WaveShapes.hero, ambientColor = tone.fg.copy(alpha = 0.18f), spotColor = tone.fg.copy(alpha = 0.22f))
+            .background(Brush.verticalGradient(listOf(tone.bg, Color.White.copy(alpha = 0.92f))), WaveShapes.hero)
+            .border(1.5.dp, Color.White.copy(alpha = 0.85f), WaveShapes.hero)
+            .padding(Spacing.l)
+            .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // Wavey on the left, the QR tile on the right, apart enough that Wavey's own mood badge never touches it.
+        Box(Modifier.size(width = 272.dp, height = 140.dp)) {
+            Canvas(Modifier.matchParentSize()) {
+                drawSparkle(Offset(size.width * 0.08f, size.height * 0.30f), 8.dp.toPx(), tone.fg.copy(alpha = 0.8f))
+                drawSparkle(Offset(size.width * 0.22f, size.height * 0.08f), 5.dp.toPx(), tone.fg.copy(alpha = 0.6f))
+            }
+            Wavey(mood, size = 132.dp, animate = false, modifier = Modifier.align(Alignment.CenterStart))
+            QrBadge(tone, Modifier.align(Alignment.CenterEnd))
         }
-    }
-    WaveCard(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }) {
-        Text("Nearby", style = MaterialTheme.typography.titleMedium, color = Navy900, modifier = Modifier.semantics { heading() })
         Spacer(Modifier.height(Spacing.s))
-        Row(verticalAlignment = Alignment.Top) {
-            if (nearby == NearbyCheck.Checking) {
-                CircularProgressIndicator(Modifier.size(36.dp).padding(6.dp), strokeWidth = 3.dp)
-            } else {
-                IconTile(style.icon, tint = style.fg, background = style.bg, size = 36.dp)
-            }
-            Spacer(Modifier.width(Spacing.m))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, color = Navy900)
-                if (body != null) Text(body, style = MaterialTheme.typography.bodyMedium, color = Slate600)
-                if (nearby is NearbyCheck.Done && nearby.accessPoints.size > 1) {
-                    Text(
-                        "${nearby.accessPoints.size} access points use this name.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Slate600,
-                    )
-                }
-            }
-            Spacer(Modifier.width(Spacing.s))
-            StatusPill(style, compact = true)
+        FitText(
+            title,
+            style = MaterialTheme.typography.headlineSmall.copy(fontSize = 24.sp, fontWeight = FontWeight.ExtraBold),
+            color = tone.fg,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { heading() },
+        )
+        Spacer(Modifier.height(Spacing.xs))
+        Text(body, style = MaterialTheme.typography.bodyLarge, color = Navy900, textAlign = TextAlign.Center)
+    }
+}
+
+/** White rounded QR tile with a round status badge on its corner. */
+@Composable
+private fun QrBadge(tone: Tone, modifier: Modifier = Modifier) {
+    Box(modifier.size(78.dp).semantics { contentDescription = "QR code, ${tone.badgeLabel}" }) {
+        Box(
+            Modifier
+                .size(64.dp)
+                .shadow(8.dp, RoundedCornerShape(16.dp))
+                .background(Color.White, RoundedCornerShape(16.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(R.drawable.ic_qr), null, tint = BrandIcon, modifier = Modifier.size(40.dp))
+        }
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .size(32.dp)
+                .border(3.dp, Color.White, CircleShape)
+                .background(tone.fg, CircleShape)
+                .padding(5.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(tone.badge), null, tint = Color.White, modifier = Modifier.size(18.dp))
         }
     }
 }
 
-private fun apLine(ap: NetworkUi) = "${ap.band.label} · ${ap.signal} dBm (${signalQuality(ap.signal).label}) · ${ap.bssid}"
+/** SSID / Signature / Registry Match / Nearby, each with its own colored icon and value. */
+@Composable
+private fun ResultCard(rows: List<ResultRow>) {
+    WaveCard(Modifier.fillMaxWidth(), color = Color.White, shape = RoundedCornerShape(22.dp), padding = 12.dp) {
+        rows.forEachIndexed { i, row ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .padding(horizontal = 4.dp)
+                    .semantics(mergeDescendants = true) {},
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    painterResource(row.icon),
+                    null,
+                    tint = if (row.fg == Navy900) BrandIcon else row.fg,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(Spacing.m))
+                Text(row.label, style = MaterialTheme.typography.bodyLarge, color = Navy900, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(Spacing.s))
+                FitText(
+                    row.value,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold),
+                    color = row.fg,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (i != rows.lastIndex) HorizontalDivider(color = Divider)
+        }
+    }
+}
+
+/** The extra facts behind "View Details": security, signer, expiry, the nearby access point, raw code. */
+@Composable
+private fun DetailsCard(s: QrResultUiState.Done) {
+    val v = s.verification
+    val nearby = s.nearby as? NearbyCheck.Done
+    val ap = when (val a = nearby?.advice) {
+        is QrJoinAdvice.Connect -> a.accessPoint
+        is QrJoinAdvice.Unverified -> a.accessPoint
+        is QrJoinAdvice.FakeNearby -> a.accessPoint
+        else -> null
+    }
+    val rows = buildList {
+        v.network?.let { add("Security" to it.security.label) }
+        add("Signer" to (v.signer ?: "None"))
+        add("Valid until" to (v.expiresAt ?: "—"))
+        add("Result code" to v.result.name)
+        ap?.let {
+            add("Access point" to it.bssid)
+            add("Signal" to "${it.signal} dBm · ${signalQuality(it.signal).label} · ${it.band.label}")
+        }
+        if (nearby != null && nearby.accessPoints.size > 1) add("Same name nearby" to "${nearby.accessPoints.size} access points")
+        add("Raw code" to v.rawPayload) // the Wi-Fi password is already masked
+    }
+    WaveCard(Modifier.fillMaxWidth().padding(top = Spacing.s)) {
+        Text("Details", style = MaterialTheme.typography.titleMedium, color = Navy900, modifier = Modifier.semantics { heading() })
+        rows.forEachIndexed { i, (label, value) ->
+            DetailRow(
+                label,
+                value,
+                monospace = label == "Raw code" || label == "Access point",
+                stacked = true,
+                showDivider = i != rows.lastIndex,
+            )
+        }
+    }
+}
 
 @Composable
 private fun JoinStatusLine(ssid: String, join: JoinStatus) {
@@ -423,55 +551,52 @@ private fun JoinStatusLine(ssid: String, join: JoinStatus) {
     )
 }
 
-/** One clear next step for each situation (see [QrJoinAdvice]). */
+/** Mockup: one strong button + "Scan Another Code". Which strong button depends on what WAVE found. */
 @Composable
-private fun Actions(
+private fun Buttons(
     state: QrResultUiState.Done,
-    ssid: String,
-    onBack: () -> Unit,
-    onOpenTab: (Tab) -> Unit,
+    tone: Tone,
+    onConnect: (pinBssid: String?) -> Unit,
+    onViewDetails: () -> Unit,
+    onScanAnother: () -> Unit,
     onScanAgain: () -> Unit,
+    onOpenTab: (Tab) -> Unit,
     onOpenWifiSettings: () -> Unit,
-    onConnect: (QrVerification, String?) -> Unit,
 ) {
-    val v = state.verification
+    val advice = state.advice()
     when (state.join) {
-        JoinStatus.Saved, JoinStatus.Suggested, JoinStatus.AlreadyConnected -> {
+        JoinStatus.Saved, JoinStatus.Suggested, JoinStatus.AlreadyConnected ->
             PrimaryButton("Open Monitor", onClick = { onOpenTab(Tab.MONITOR) }, icon = R.drawable.ic_monitor_heart)
-            return
-        }
-        JoinStatus.AlreadySaved -> {
-            PrimaryButton("Open Wi-Fi settings", onClick = onOpenWifiSettings, icon = R.drawable.ic_wifi)
-            return
-        }
-        else -> Unit
-    }
-    when (val nearby = state.nearby) {
-        NearbyCheck.Checking -> PrimaryButton("Checking nearby…", onClick = {}, loading = true, enabled = false)
-        NearbyCheck.NoLocation -> PrimaryButton("Allow location", onClick = { onOpenTab(Tab.NETWORKS) }, icon = R.drawable.ic_location)
-        is NearbyCheck.Done -> when (val a = nearby.advice) {
-            QrJoinAdvice.CodeUnsafe -> PrimaryButton("Scan another code", onClick = onBack, icon = R.drawable.ic_qr)
-            QrJoinAdvice.NotInRange -> {
-                PrimaryButton("Scan again", onClick = onScanAgain, icon = R.drawable.ic_refresh)
-                SecondaryButton("Scan another code", onClick = onBack)
-            }
-            is QrJoinAdvice.Connect -> PrimaryButton(
-                "Connect to $ssid",
-                onClick = { onConnect(v, a.pinBssid) },
-                icon = R.drawable.ic_wifi,
+        JoinStatus.AlreadySaved ->
+            PrimaryButton("Open Wi-Fi settings", onClick = onOpenWifiSettings, icon = R.drawable.ic_open_in_new)
+        else -> when {
+            state.nearby == NearbyCheck.Checking ->
+                PrimaryButton("Checking the network nearby…", onClick = {}, loading = true, enabled = false)
+            state.nearby == NearbyCheck.NoLocation ->
+                PrimaryButton("Allow location", onClick = { onOpenTab(Tab.NETWORKS) }, icon = R.drawable.ic_location)
+            advice is QrJoinAdvice.Connect -> PrimaryButton(
+                "Connect to Wi-Fi",
+                onClick = { onConnect(advice.pinBssid) },
+                icon = R.drawable.ic_open_in_new,
                 loading = state.join == JoinStatus.Asking,
             )
-            is QrJoinAdvice.FakeNearby ->
-                PrimaryButton("Check nearby networks", onClick = { onOpenTab(Tab.NETWORKS) }, icon = R.drawable.ic_wifi)
-            is QrJoinAdvice.Unverified -> {
-                PrimaryButton("Check nearby networks", onClick = { onOpenTab(Tab.NETWORKS) }, icon = R.drawable.ic_wifi)
-                SecondaryButton("Connect anyway", onClick = { onConnect(v, null) })
-            }
+            advice == QrJoinAdvice.NotInRange && tone != Tone.INVALID ->
+                PrimaryButton("Scan again", onClick = onScanAgain, icon = R.drawable.ic_refresh)
+            else -> PrimaryButton("View Details", onClick = onViewDetails, containerColor = Navy900)
+        }
+    }
+    SecondaryButton("Scan Another Code", onClick = onScanAnother)
+    // An unregistered network nearby can be joined, but never as the highlighted choice.
+    val canConnectAnyway = advice is QrJoinAdvice.Unverified &&
+        (state.join == JoinStatus.Idle || state.join == JoinStatus.Cancelled || state.join is JoinStatus.Failed)
+    if (canConnectAnyway) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            WaveTextButton("Connect anyway (not verified)", onClick = { onConnect(null) })
         }
     }
 }
 
-// ---- Previews: verified, warning, unknown, loading (+ each QR result and nearby outcome) ----
+// ---- Previews: verified, warning, unknown, loading (+ nearby outcomes) ----
 
 @Composable
 private fun PreviewOf(state: QrResultUiState) = WAVETheme {
@@ -480,41 +605,35 @@ private fun PreviewOf(state: QrResultUiState) = WAVETheme {
 
 private fun done(result: QrResult, nearby: NearbyCheck) = QrResultUiState.Done(FakeFixtures.qr(result), nearby)
 
-@Preview(showSystemUi = true, name = "Verified (VALID, verified AP nearby)")
+@Preview(showSystemUi = true, name = "Verified (valid, verified AP nearby)")
 @Composable
 private fun QrValidPreview() = PreviewOf(done(QrResult.VALID, NearbyCheck.Done(QrJoinAdvice.Connect(FakeFixtures.campus, null))))
 
-@Preview(showSystemUi = true, name = "Verified + fake nearby (pinned)")
-@Composable
-private fun QrValidTwinPreview() = PreviewOf(
-    done(QrResult.VALID, NearbyCheck.Done(QrJoinAdvice.Connect(FakeFixtures.campus, FakeFixtures.campus.bssid))),
-)
-
-@Preview(showSystemUi = true, name = "Warning (only a fake nearby)")
-@Composable
-private fun QrFakeNearbyPreview() = PreviewOf(done(QrResult.UNSIGNED, NearbyCheck.Done(QrJoinAdvice.FakeNearby(FakeFixtures.twin))))
-
-@Preview(showSystemUi = true, name = "Warning (BAD_SIGNATURE)")
+@Preview(showSystemUi = true, name = "Warning (changed code)")
 @Composable
 private fun QrChangedPreview() = PreviewOf(done(QrResult.BAD_SIGNATURE, NearbyCheck.Done(QrJoinAdvice.CodeUnsafe)))
 
-@Preview(showSystemUi = true, name = "Warning (EXPIRED)")
+@Preview(showSystemUi = true, name = "Warning (fake network nearby)")
+@Composable
+private fun QrFakeNearbyPreview() = PreviewOf(done(QrResult.VALID, NearbyCheck.Done(QrJoinAdvice.FakeNearby(FakeFixtures.twin))))
+
+@Preview(showSystemUi = true, name = "Warning (expired)")
 @Composable
 private fun QrExpiredPreview() = PreviewOf(done(QrResult.EXPIRED, NearbyCheck.Done(QrJoinAdvice.CodeUnsafe)))
 
-@Preview(showSystemUi = true, name = "Unknown (UNSIGNED, unverified AP)")
+@Preview(showSystemUi = true, name = "Unknown (unsigned, unverified AP)")
 @Composable
 private fun QrUnsignedPreview() = PreviewOf(done(QrResult.UNSIGNED, NearbyCheck.Done(QrJoinAdvice.Unverified(FakeFixtures.library))))
 
-@Preview(showSystemUi = true, name = "Unknown (UNKNOWN_KEY, not in range)")
+@Preview(showSystemUi = true, name = "Unknown (unknown signer, not in range)")
 @Composable
 private fun QrUnknownKeyPreview() = PreviewOf(done(QrResult.UNKNOWN_KEY, NearbyCheck.Done(QrJoinAdvice.NotInRange)))
 
-@Preview(showSystemUi = true, name = "Unknown (MALFORMED)")
+@Preview(showSystemUi = true, name = "Unknown (not a Wi-Fi code)")
 @Composable
 private fun QrMalformedPreview() = PreviewOf(done(QrResult.MALFORMED, NearbyCheck.Done(QrJoinAdvice.CodeUnsafe)))
 
-@Preview(showSystemUi = true, name = "Checking nearby")
+@Preview(showSystemUi = true, name = "Loading (checking nearby)")
 @Composable
 private fun QrCheckingPreview() = PreviewOf(done(QrResult.VALID, NearbyCheck.Checking))
 

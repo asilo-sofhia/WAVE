@@ -92,6 +92,7 @@ fun WaveNavHost(
                 payload = entry.arguments?.getString(Routes.ARG_PAYLOAD).orEmpty(),
                 onBack = { nav.popBackStack() },
                 onOpenTab = { nav.navigateToTab(it) },
+                onOpenNetwork = { nav.navigate(Routes.detail(it)) },
             )
         }
         composable(Routes.MONITOR) {
