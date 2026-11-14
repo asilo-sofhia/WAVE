@@ -234,7 +234,7 @@ private fun MascotStage(modifier: Modifier) {
             drawSparkle(Offset(w * 0.86f, h * 0.35f), w * 0.048f * (1.82f - twinkle), Color.White, glow = Color(0x40FFFFFF))
         }
         Wavey(
-            mood = WaveyMood.NORMAL,
+            mood = WaveyMood.WAVING,
             size = mascot,
             modifier = Modifier.padding(top = mascotTop),
         )

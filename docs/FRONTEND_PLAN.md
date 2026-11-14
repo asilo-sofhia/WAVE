@@ -39,13 +39,13 @@ Routes use plain string routes (`"detail/{bssid}"`) so we don't need the kotlinx
 |---|---|---|
 | **Splash** (mockup 1) | First-launch welcome, "Your Wi-Fi safety buddy", Get Started | Default → NORMAL |
 | **Location explainer** (new) | Explains why Android needs location to list Wi-Fi, and that WAVE never stores or sends it. "Allow location" / "Not now" | First ask → CURIOUS · Denied ("Open settings") → CURIOUS |
-| **Home** (mockup 2) | Wavey + speech bubble, SSID card, Health card, Check Wi-Fi, tool rows | Not checked → NORMAL · Checking (loading) → CURIOUS · Verified + exit PENDING → NORMAL · Verified + exit PASSED → **HAPPY** · Unknown → CURIOUS · Warning → BRUISED (goes to Disconnect-now) · Not on Wi-Fi → NORMAL |
+| **Home** (mockup 2) | Wavey + speech bubble, SSID card, Health card, Check Wi-Fi, tool rows | Not checked → NORMAL · Checking (loading) → CURIOUS · Verified + exit PENDING → NORMAL · Verified + exit PASSED → **HAPPY** · Unknown → CURIOUS · Warning → SCARED (goes to Disconnect-now) · Not on Wi-Fi → NORMAL |
 | **Nearby Networks** (mockup 3) | Scan summary, registry info, list of NetworkRows, quick actions | Loading (skeleton rows) → CURIOUS · All verified → NORMAL · Twin nearby (banner) → UNCOMFORTABLE · Unknown only → CURIOUS · Empty → NORMAL · No permission → CURIOUS |
 | **Network detail / Warning** (new) | One network's verdict. WARNING shows the title "Don't connect", plain-language reasons, one action ("Back to safe networks"), and a "Technical details" toggle (BSSID, security, band, dBm, reason codes) | VERIFIED → NORMAL · UNKNOWN ("Can't verify, avoid logins") → CURIOUS · WARNING → UNCOMFORTABLE · Loading → CURIOUS |
 | **Scan QR** (mockup 4) | Fake viewfinder (static frame + scan-line animation). Tap frame / "Scan sample QR" runs FakeQrVerifier. Flashlight toggles its icon only; Gallery runs the same fake verify. "?" opens a help sheet | Idle → QR_PEEK · Verifying → CURIOUS |
 | **QR result** (new) | Verdict for the scanned QR, the network it encodes, one action, and a tech-details toggle (signer, expiry, raw payload) | VALID → NORMAL, "Connect" · BAD_SIGNATURE ("This QR was changed") → UNCOMFORTABLE · EXPIRED → UNCOMFORTABLE · UNSIGNED / UNKNOWN_KEY → CURIOUS · MALFORMED ("Not a Wi-Fi QR") → CURIOUS |
 | **Connection Monitor** (mockup 5) | Current connection: Registry tile + Exit-path tile, details list, "Live" pill | Not connected → NORMAL · Loading → CURIOUS · Verified + PENDING → NORMAL · Verified + PASSED → **HAPPY** · Unknown → CURIOUS · Warning / exit FAILED → goes to Disconnect-now |
-| **Disconnect-now** (new) | Connected to a fake network. Big "Disconnect now" heading, reasons, one action "Open Wi-Fi settings" (`Settings.Panel.ACTION_WIFI`; Android 10+ apps can't disconnect for you), secondary "I've disconnected" | Always → BRUISED |
+| **Disconnect-now** (new) | Connected to a fake network. Big "Disconnect now" heading, reasons, one action "Open Wi-Fi settings" (`Settings.Panel.ACTION_WIFI`; Android 10+ apps can't disconnect for you), secondary "I've disconnected" | Always → SCARED |
 | **Debug menu** (hidden sheet) | Switch scenarios during demos | No Wavey |
 
 **One rule in one place:** `waveyMoodFor(verdict, exitPath, connected)` in `model/WaveyRules.kt` decides the mood. HAPPY only when `verdict == VERIFIED && exitPath == PASSED`. Covered by a JUnit test.
@@ -81,7 +81,7 @@ data class QrVerification(val result: QrResult, val network: NetworkUi?, val sig
 
 enum class ExitPathStatus { PENDING, PASSED, FAILED }
 
-enum class WaveyMood { NORMAL, HAPPY, UNCOMFORTABLE, CURIOUS, BRUISED, QR_PEEK }
+enum class WaveyMood { NORMAL, HAPPY, UNCOMFORTABLE, CURIOUS, SCARED, QR_PEEK, WAVING, SAD }
 
 data class RegistryInfo(val source: String, val updatedAt: String)   // "Offline registry", "today"
 data class ScanResult(val networks: List<NetworkUi>, val registry: RegistryInfo, val scannedAt: Long)

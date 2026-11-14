@@ -42,7 +42,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
@@ -226,7 +225,8 @@ fun MonitorScreen(
                             state.exitPath == ExitPathStatus.PASSED -> "All checks passed. You're safe."
                             else -> "Your connection is being analyzed."
                         },
-                        modifier = Modifier.weight(1f),
+                        // Hero and details share the page; the hero gets a bit more so Wavey stays the focus.
+                        modifier = Modifier.weight(1.3f),
                     ) {
                         CheckSummary(registry = registry, exit = exit)
                         if (state.unsafe) {
@@ -240,7 +240,13 @@ fun MonitorScreen(
                         }
                     }
                     Spacer(Modifier.height(Spacing.m))
-                    DetailsCard(network = network, registry = registry, exit = exit, onOpen = { onOpenNetwork(network.bssid) })
+                    DetailsCard(
+                        network = network,
+                        registry = registry,
+                        exit = exit,
+                        onOpen = { onOpenNetwork(network.bssid) },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -262,13 +268,15 @@ private fun MonitorHero(
     bottom: @Composable ColumnScope.() -> Unit = {},
 ) {
     HeroCard(modifier.fillMaxWidth(), padding = 12.dp) {
+        // Wavey fills the space it's given (like the QR result screen): no size cap, centred, so there's no
+        // empty sky above it.
         BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentAlignment = Alignment.BottomCenter,
+            contentAlignment = Alignment.Center,
         ) {
-            val stage = minOf(maxHeight, maxWidth * 0.56f, 220.dp)
+            val stage = minOf(maxHeight, maxWidth * 0.66f)
             if (stage >= 48.dp) {
                 HeroSparkles(Modifier.matchParentSize())
                 WaveyWithOrb(mood, orbActive, stage)
@@ -297,22 +305,26 @@ private fun MonitorHero(
     }
 }
 
-/** Wavey with a big glowing Wi-Fi orb held in front, paws on its sides (mockup 5). */
+/**
+ * The whole Wavey (two fins, two feet, face clear, as on the QR result screen) holding a small glowing Wi-Fi orb
+ * in front of its belly: below the mouth, between the fins, above the feet. No extra paws are drawn.
+ */
 @Composable
 private fun WaveyWithOrb(mood: WaveyMood, active: Boolean, stageSize: Dp) {
-    // Wavey large, the orb held at its belly (face stays fully visible above it).
-    val orb = stageSize * 0.44f
-    Box(Modifier.size(width = stageSize * 1.1f, height = stageSize).clearAndSetSemantics {}, contentAlignment = Alignment.TopCenter) {
+    // Big orb filling the belly: its top stays below the cheeks (~50% down), its bottom just above the feet (~88%).
+    val orb = stageSize * 0.33f
+    Box(Modifier.size(stageSize).clearAndSetSemantics {}) {
         Wavey(mood, size = stageSize, animate = false)
-        // Orb: soft glass halo + deep-blue disc + white Wi-Fi mark.
+        // Orb: soft glass halo + deep-blue disc + white Wi-Fi mark, centred on the belly (~69% down).
         Box(
             Modifier
-                .align(Alignment.BottomCenter)
+                .align(Alignment.TopCenter)
+                .offset(y = stageSize * 0.69f - orb * 0.58f)
                 .size(orb * 1.16f)
                 .background(Color.White.copy(alpha = 0.45f), CircleShape)
                 .border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape)
                 .padding(orb * 0.08f)
-                .shadow(12.dp, CircleShape, spotColor = Color(0xFF0A63E8))
+                .shadow(10.dp, CircleShape, spotColor = Color(0xFF0A63E8))
                 .background(
                     Brush.radialGradient(
                         if (active) listOf(Color(0xFF48B6FF), Color(0xFF0E74F0), Color(0xFF0A5FD8)) else listOf(Color(0xFFB9C4D3), Color(0xFF8995A8)),
@@ -321,28 +333,7 @@ private fun WaveyWithOrb(mood: WaveyMood, active: Boolean, stageSize: Dp) {
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_wifi), null, tint = Color.White, modifier = Modifier.size(orb * 0.48f))
-        }
-        // Paws hugging the orb.
-        Canvas(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .offset(y = -orb * 0.86f)
-                .size(width = orb * 1.30f, height = orb * 0.26f),
-        ) {
-            val pawW = size.width * 0.27f
-            listOf(0f, size.width - pawW).forEach { x ->
-                drawOval(
-                    Brush.verticalGradient(listOf(Color(0xFFBDE8FE), Color(0xFF6CC5F6))),
-                    topLeft = Offset(x, 0f),
-                    size = Size(pawW, size.height),
-                )
-                drawOval(
-                    Color.White.copy(alpha = 0.55f),
-                    topLeft = Offset(x + pawW * 0.22f, size.height * 0.14f),
-                    size = Size(pawW * 0.38f, size.height * 0.28f),
-                )
-            }
+            Icon(painterResource(R.drawable.ic_wifi), null, tint = Color.White, modifier = Modifier.size(orb * 0.5f))
         }
     }
 }
@@ -428,29 +419,36 @@ private fun SummaryHalf(@DrawableRes icon: Int, style: StatusStyle, label: Strin
  * Tapping it opens every reading for this connection (Network details: checks, Wi-Fi details, IP, link speed).
  */
 @Composable
-private fun DetailsCard(network: NetworkUi, registry: StatusStyle, exit: StatusStyle, onOpen: () -> Unit) {
+private fun DetailsCard(
+    network: NetworkUi,
+    registry: StatusStyle,
+    exit: StatusStyle,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val shape = RoundedCornerShape(24.dp)
     WaveCard(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(shape)
             .clickable(onClickLabel = "Open all connection details", role = Role.Button, onClick = onOpen),
         color = Color.White,
         shape = shape,
-        padding = 12.dp,
+        padding = 14.dp,
     ) {
         Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "Connection details",
-                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, fontWeight = FontWeight.ExtraBold),
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
                 color = Navy900,
                 modifier = Modifier.weight(1f).semantics { heading() },
             )
             LivePill()
             Spacer(Modifier.width(4.dp))
-            Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Slate600, modifier = Modifier.size(22.dp))
+            Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Slate600, modifier = Modifier.size(24.dp))
         }
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(4.dp))
+        // The five rows share the card's height evenly, so the card fills its part of the page.
         DetailLine("BSSID", network.bssid)
         DetailLine("Security type", network.security.label)
         DetailLine("Signal strength", "${network.signal} dBm · ${signalQuality(network.signal).label}")
@@ -459,19 +457,24 @@ private fun DetailsCard(network: NetworkUi, registry: StatusStyle, exit: StatusS
     }
 }
 
-/** Compact, read-only label/value line (not tappable, so no 48dp target needed). */
+/** Read-only label/value line (not tappable, so no 48dp target needed). Grows to share the card's height. */
 @Composable
-private fun DetailLine(label: String, value: String, valueColor: Color = Navy900, divider: Boolean = true) {
-    Column(Modifier.padding(horizontal = 4.dp).semantics(mergeDescendants = true) {}) {
+private fun ColumnScope.DetailLine(label: String, value: String, valueColor: Color = Navy900, divider: Boolean = true) {
+    Column(
+        Modifier
+            .weight(1f)
+            .padding(horizontal = 4.dp)
+            .semantics(mergeDescendants = true) {},
+    ) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 24.dp).padding(vertical = 2.dp),
+            Modifier.fillMaxWidth().weight(1f).heightIn(min = 26.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp), color = Slate600, modifier = Modifier.weight(1f))
+            Text(label, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.5.sp), color = Slate600, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(Spacing.s))
             FitText(
                 value,
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp, fontWeight = FontWeight.ExtraBold),
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.5.sp, fontWeight = FontWeight.ExtraBold),
                 color = valueColor,
                 textAlign = TextAlign.End,
                 modifier = Modifier.weight(1.2f),

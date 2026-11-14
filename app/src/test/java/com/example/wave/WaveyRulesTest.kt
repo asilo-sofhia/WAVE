@@ -34,9 +34,21 @@ class WaveyRulesTest {
     }
 
     @Test
-    fun connectedToWarningOrFailedExitIsBruised() {
-        assertEquals(WaveyMood.BRUISED, waveyMoodFor(Verdict.WARNING, null, connected = true))
-        assertEquals(WaveyMood.BRUISED, waveyMoodFor(Verdict.VERIFIED, ExitPathStatus.FAILED, connected = true))
+    fun connectedToWarningOrFailedExitIsScared() {
+        assertEquals(WaveyMood.SCARED, waveyMoodFor(Verdict.WARNING, null, connected = true))
+        assertEquals(WaveyMood.SCARED, waveyMoodFor(Verdict.VERIFIED, ExitPathStatus.FAILED, connected = true))
+    }
+
+    @Test
+    fun wavingIsNeverAVerdict() {
+        for (verdict in Verdict.entries + listOf<Verdict?>(null)) {
+            for (exit in ExitPathStatus.entries + listOf<ExitPathStatus?>(null)) {
+                for (connected in listOf(true, false)) {
+                    assertNotEquals(WaveyMood.WAVING, waveyMoodFor(verdict, exit, connected))
+                }
+            }
+        }
+        for (qr in QrResult.entries) assertNotEquals(WaveyMood.WAVING, waveyMoodFor(qr))
     }
 
     @Test
@@ -51,11 +63,22 @@ class WaveyRulesTest {
     @Test
     fun qrMoods() {
         assertEquals(WaveyMood.NORMAL, waveyMoodFor(QrResult.VALID))
-        assertEquals(WaveyMood.UNCOMFORTABLE, waveyMoodFor(QrResult.BAD_SIGNATURE))
-        assertEquals(WaveyMood.UNCOMFORTABLE, waveyMoodFor(QrResult.EXPIRED))
-        assertEquals(WaveyMood.CURIOUS, waveyMoodFor(QrResult.UNSIGNED))
-        assertEquals(WaveyMood.CURIOUS, waveyMoodFor(QrResult.MALFORMED))
-        assertEquals(WaveyMood.CURIOUS, waveyMoodFor(QrResult.UNKNOWN_KEY))
+        assertEquals(WaveyMood.SAD, waveyMoodFor(QrResult.BAD_SIGNATURE))
+        assertEquals(WaveyMood.SAD, waveyMoodFor(QrResult.EXPIRED))
+        assertEquals(WaveyMood.SAD, waveyMoodFor(QrResult.UNSIGNED))
+        assertEquals(WaveyMood.SAD, waveyMoodFor(QrResult.MALFORMED))
+        assertEquals(WaveyMood.SAD, waveyMoodFor(QrResult.UNKNOWN_KEY))
+    }
+
+    @Test
+    fun sadIsNeverANetworkMood() {
+        for (verdict in Verdict.entries + listOf<Verdict?>(null)) {
+            for (exit in ExitPathStatus.entries + listOf<ExitPathStatus?>(null)) {
+                for (connected in listOf(true, false)) {
+                    assertNotEquals(WaveyMood.SAD, waveyMoodFor(verdict, exit, connected))
+                }
+            }
+        }
     }
 
     @Test

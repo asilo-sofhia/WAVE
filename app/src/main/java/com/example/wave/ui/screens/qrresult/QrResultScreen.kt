@@ -4,15 +4,17 @@ import android.content.ActivityNotFoundException
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -20,13 +22,18 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,7 +55,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,7 +76,6 @@ import com.example.wave.model.QrVerification
 import com.example.wave.model.Verdict
 import com.example.wave.model.WaveyMood
 import com.example.wave.model.signalQuality
-import com.example.wave.model.waveyMoodFor
 import com.example.wave.ui.components.DetailRow
 import com.example.wave.ui.components.FitText
 import com.example.wave.ui.components.PrimaryButton
@@ -301,26 +309,28 @@ private fun rowsOf(s: QrResultUiState.Done, tone: Tone): List<ResultRow> {
         false -> "Not found" to bad
         null -> "No registry" to NeutralFg
     }
-    val nearby: Pair<String, Color>? = when (val n = s.nearby) {
-        NearbyCheck.Checking -> "Checking…" to NeutralFg
-        NearbyCheck.NoLocation -> "Location off" to NeutralFg
-        is NearbyCheck.Done -> when (n.advice) {
-            QrJoinAdvice.CodeUnsafe -> null
-            QrJoinAdvice.NotInRange -> "Not in range" to NeutralFg
-            is QrJoinAdvice.Connect -> "Verified" to VerifiedFg
-            is QrJoinAdvice.FakeNearby -> "Fake copy" to WarningFg
-            is QrJoinAdvice.Unverified -> "Not verified" to UnknownFg
-        }
-    }
-    return listOfNotNull(
+    // Mockup: three rows. What WAVE found nearby shows in the main button and in View Details.
+    return listOf(
         ResultRow(R.drawable.ic_wifi, "SSID", v.network?.ssid ?: "—", Navy900),
         ResultRow(R.drawable.ic_shield_outline, "Signature", signature.first, signature.second),
         ResultRow(R.drawable.ic_database, "Registry Match", registry.first, registry.second),
-        nearby?.let { ResultRow(R.drawable.ic_location, "Nearby network", it.first, it.second) },
     )
 }
 
-// ---- Screen (layout follows the "QR Verification Result" mockup) ----
+/** The nearby check in words, for View Details. Null when the code was never looked up (unsafe code). */
+private fun nearbyText(n: NearbyCheck): String? = when (n) {
+    NearbyCheck.Checking -> "Checking…"
+    NearbyCheck.NoLocation -> "Location off"
+    is NearbyCheck.Done -> when (n.advice) {
+        QrJoinAdvice.CodeUnsafe -> null
+        QrJoinAdvice.NotInRange -> "Not in range"
+        is QrJoinAdvice.Connect -> "Verified access point"
+        is QrJoinAdvice.FakeNearby -> "Fake copy nearby"
+        is QrJoinAdvice.Unverified -> "Not verified"
+    }
+}
+
+// ---- Screen (layout follows the "QR Result (Verified / Invalid)" mockups: one page, no scrolling) ----
 
 @Composable
 fun QrResultScreen(
@@ -334,7 +344,7 @@ fun QrResultScreen(
     /** Join the code's network; the BSSID pins it to the verified access point when a fake shares the name. */
     onConnect: (QrVerification, pinBssid: String?) -> Unit = { _, _ -> },
 ) {
-    WaveScreen(title = "QR Verification Result", onBack = onBack, modifier = modifier) {
+    WaveScreen(title = "QR Verification Result", onBack = onBack, modifier = modifier, scrollable = false) {
         when (state) {
             QrResultUiState.Loading -> Column(
                 Modifier.fillMaxWidth().padding(top = Spacing.xxl).semantics { liveRegion = LiveRegionMode.Polite },
@@ -350,8 +360,9 @@ fun QrResultScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Done(
+private fun ColumnScope.Done(
     state: QrResultUiState.Done,
     onBack: () -> Unit,
     onOpenTab: (Tab) -> Unit,
@@ -365,60 +376,80 @@ private fun Done(
     val (title, body) = heroText(state, tone)
     var detailsOpen by rememberSaveable { mutableStateOf(false) }
     val ssid = v.credentials?.ssid ?: v.network?.ssid ?: "this network"
-    // Wavey's mood follows the code (HAPPY needs a passed exit-path check, so never here).
-    val mood = when (tone) {
-        Tone.VALID -> WaveyMood.NORMAL
-        Tone.INVALID -> WaveyMood.UNCOMFORTABLE
-        Tone.UNVERIFIED -> if (v.result == QrResult.VALID) WaveyMood.CURIOUS else waveyMoodFor(v.result)
+    // HAPPY for a genuine code that matches the registry (team decision for this screen; the access point is
+    // still checked before "Connect"). A fake access point nearby is a network warning (UNCOMFORTABLE);
+    // any invalid or unverified code is SAD.
+    val mood = when {
+        tone == Tone.VALID -> WaveyMood.HAPPY
+        state.advice() is QrJoinAdvice.FakeNearby -> WaveyMood.UNCOMFORTABLE
+        else -> WaveyMood.SAD
     }
 
-    ResultHero(tone, mood, title, body)
+    // The hero takes all the height the rest doesn't need, so Wavey grows on tall phones and the page never scrolls.
+    ResultHero(tone, mood, title, body, Modifier.weight(1f))
     ResultCard(rowsOf(state, tone))
     JoinStatusLine(ssid, state.join)
-    Buttons(
-        state = state,
-        tone = tone,
-        onConnect = { pin -> onConnect(v, pin) },
-        onViewDetails = {
-            val fake = (state.advice() as? QrJoinAdvice.FakeNearby)?.accessPoint
-            if (fake != null) onOpenNetwork(fake.bssid) else detailsOpen = !detailsOpen
-        },
-        onScanAnother = onBack,
-        onScanAgain = onScanAgain,
-        onOpenTab = onOpenTab,
-        onOpenWifiSettings = onOpenWifiSettings,
-    )
-    if (tone == Tone.VALID) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            WaveTextButton(if (detailsOpen) "Hide details" else "View details", onClick = { detailsOpen = !detailsOpen })
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
+        Buttons(
+            state = state,
+            tone = tone,
+            onConnect = { pin -> onConnect(v, pin) },
+            onViewDetails = {
+                val fake = (state.advice() as? QrJoinAdvice.FakeNearby)?.accessPoint
+                if (fake != null) onOpenNetwork(fake.bssid) else detailsOpen = true
+            },
+            onScanAnother = onBack,
+            onScanAgain = onScanAgain,
+            onOpenTab = onOpenTab,
+            onOpenWifiSettings = onOpenWifiSettings,
+        )
+    }
+    if (detailsOpen) {
+        // A sheet, so the page itself stays one screen.
+        ModalBottomSheet(
+            onDismissRequest = { detailsOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Column(
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = Spacing.gutter, end = Spacing.gutter, bottom = Spacing.xl),
+            ) { DetailsCard(state) }
         }
     }
-    AnimatedVisibility(detailsOpen) { DetailsCard(state) }
 }
 
-/** Tinted card: Wavey with a QR tile and a ✓ / ✕ / ? badge, then a big colored title and one line. */
+/**
+ * Tinted card (mockup): big Wavey on the left with sparkles, the QR tile with a ✓ / ✕ / ? badge overlapping on
+ * the right, then a big colored title and one line. Wavey scales with the height the card gets.
+ */
 @Composable
-private fun ResultHero(tone: Tone, mood: WaveyMood, title: String, body: String) {
+private fun ResultHero(tone: Tone, mood: WaveyMood, title: String, body: String, modifier: Modifier = Modifier) {
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .shadow(14.dp, WaveShapes.hero, ambientColor = tone.fg.copy(alpha = 0.18f), spotColor = tone.fg.copy(alpha = 0.22f))
             .background(Brush.verticalGradient(listOf(tone.bg, Color.White.copy(alpha = 0.92f))), WaveShapes.hero)
             .border(1.5.dp, Color.White.copy(alpha = 0.85f), WaveShapes.hero)
-            .padding(Spacing.l)
+            .padding(horizontal = Spacing.l, vertical = Spacing.m)
             .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Wavey on the left, the QR tile on the right, apart enough that Wavey's own mood badge never touches it.
-        Box(Modifier.size(width = 272.dp, height = 140.dp)) {
-            Canvas(Modifier.matchParentSize()) {
-                drawSparkle(Offset(size.width * 0.08f, size.height * 0.30f), 8.dp.toPx(), tone.fg.copy(alpha = 0.8f))
-                drawSparkle(Offset(size.width * 0.22f, size.height * 0.08f), 5.dp.toPx(), tone.fg.copy(alpha = 0.6f))
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            val wavey = min(maxHeight, maxWidth * 0.66f).coerceAtLeast(96.dp)
+            val tile = wavey * 0.46f
+            // Wavey and the tile form one group, centred; the tile tucks in against Wavey's right side.
+            Box(Modifier.size(width = wavey + tile * 0.78f, height = wavey)) {
+                Canvas(Modifier.matchParentSize()) {
+                    drawSparkle(Offset(size.width * 0.04f, size.height * 0.40f), 9.dp.toPx(), tone.fg.copy(alpha = 0.8f))
+                    drawSparkle(Offset(size.width * 0.16f, size.height * 0.12f), 6.dp.toPx(), tone.fg.copy(alpha = 0.6f))
+                    drawSparkle(Offset(size.width * 0.96f, size.height * 0.10f), 5.dp.toPx(), tone.fg.copy(alpha = 0.5f))
+                }
+                Wavey(mood, size = wavey, modifier = Modifier.align(Alignment.CenterStart))
+                QrBadge(tone, tile, Modifier.align(Alignment.CenterEnd).offset(y = -wavey * 0.12f))
             }
-            Wavey(mood, size = 132.dp, animate = false, modifier = Modifier.align(Alignment.CenterStart))
-            QrBadge(tone, Modifier.align(Alignment.CenterEnd))
         }
-        Spacer(Modifier.height(Spacing.s))
+        Spacer(Modifier.height(Spacing.xs))
         FitText(
             title,
             style = MaterialTheme.typography.headlineSmall.copy(fontSize = 24.sp, fontWeight = FontWeight.ExtraBold),
@@ -431,29 +462,30 @@ private fun ResultHero(tone: Tone, mood: WaveyMood, title: String, body: String)
     }
 }
 
-/** White rounded QR tile with a round status badge on its corner. */
+/** White rounded QR tile of side [tile] with a round status badge on its lower-right corner. */
 @Composable
-private fun QrBadge(tone: Tone, modifier: Modifier = Modifier) {
-    Box(modifier.size(78.dp).semantics { contentDescription = "QR code, ${tone.badgeLabel}" }) {
+private fun QrBadge(tone: Tone, tile: Dp, modifier: Modifier = Modifier) {
+    val badge = (tile * 0.42f).coerceAtLeast(28.dp)
+    Box(modifier.size(tile + badge * 0.35f).semantics { contentDescription = "QR code, ${tone.badgeLabel}" }) {
         Box(
             Modifier
-                .size(64.dp)
-                .shadow(8.dp, RoundedCornerShape(16.dp))
-                .background(Color.White, RoundedCornerShape(16.dp)),
+                .size(tile)
+                .shadow(8.dp, RoundedCornerShape(tile * 0.24f))
+                .background(Color.White, RoundedCornerShape(tile * 0.24f)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_qr), null, tint = BrandIcon, modifier = Modifier.size(40.dp))
+            Icon(painterResource(R.drawable.ic_qr), null, tint = BrandIcon, modifier = Modifier.size(tile * 0.62f))
         }
         Box(
             Modifier
                 .align(Alignment.BottomEnd)
-                .size(32.dp)
+                .size(badge)
                 .border(3.dp, Color.White, CircleShape)
                 .background(tone.fg, CircleShape)
-                .padding(5.dp),
+                .padding(badge * 0.16f),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(tone.badge), null, tint = Color.White, modifier = Modifier.size(18.dp))
+            Icon(painterResource(tone.badge), null, tint = Color.White, modifier = Modifier.fillMaxSize())
         }
     }
 }
@@ -509,6 +541,7 @@ private fun DetailsCard(s: QrResultUiState.Done) {
         add("Signer" to (v.signer ?: "None"))
         add("Valid until" to (v.expiresAt ?: "—"))
         add("Result code" to v.result.name)
+        nearbyText(s.nearby)?.let { add("Nearby network" to it) }
         ap?.let {
             add("Access point" to it.bssid)
             add("Signal" to "${it.signal} dBm · ${signalQuality(it.signal).label} · ${it.band.label}")
@@ -516,7 +549,7 @@ private fun DetailsCard(s: QrResultUiState.Done) {
         if (nearby != null && nearby.accessPoints.size > 1) add("Same name nearby" to "${nearby.accessPoints.size} access points")
         add("Raw code" to v.rawPayload) // the Wi-Fi password is already masked
     }
-    WaveCard(Modifier.fillMaxWidth().padding(top = Spacing.s)) {
+    WaveCard(Modifier.fillMaxWidth()) {
         Text("Details", style = MaterialTheme.typography.titleMedium, color = Navy900, modifier = Modifier.semantics { heading() })
         rows.forEachIndexed { i, (label, value) ->
             DetailRow(

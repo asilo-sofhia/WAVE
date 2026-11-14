@@ -14,8 +14,8 @@ Kotlin, Jetpack Compose, Material 3, Navigation Compose, ViewModel + StateFlow. 
 
 ## Design
 - Mockups in docs/mockups/ are the visual inspiration, not pixel-exact specs.
-- Mascot: Wavey the dolphin. Moods: NORMAL, HAPPY, UNCOMFORTABLE, CURIOUS, BRUISED, QR_PEEK. Until the animated WebPs exist, use placeholder images through one `Wavey(mood)` composable.
-- HAPPY only when Verified AND exit-path check passed.
+- Mascot: Wavey the dolphin. Moods: NORMAL, HAPPY, UNCOMFORTABLE, CURIOUS, SCARED, QR_PEEK, WAVING (greeting only, never a verdict), SAD (invalid or unverified QR codes only). All art goes through one `Wavey(mood)` composable; moods without real art yet use placeholders there.
+- HAPPY only when Verified AND exit-path check passed. One exception: the QR result screen shows HAPPY for a valid signed code that matches the registry (the access point is still checked before Connect).
 - Verdict colors (as in the mockups): Verified = green + check icon, Warning = red + triangle, Unknown/Pending = yellow (amber) + "?" / clock. Neutral states (not checked, skipped, not connected) = gray. Never color alone.
 - Out of scope: WPA2/3-Enterprise, iOS, accounts/login, background monitoring.
 

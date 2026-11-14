@@ -142,7 +142,7 @@ fun DisconnectScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.l),
     ) {
-        Wavey(WaveyMood.BRUISED, size = 180.dp)
+        Wavey(WaveyMood.SCARED, size = 180.dp)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.semantics { heading() }) {
             Icon(painterResource(R.drawable.ic_warning), null, tint = Danger, modifier = Modifier.size(32.dp))
             Spacer(Modifier.width(Spacing.s))
