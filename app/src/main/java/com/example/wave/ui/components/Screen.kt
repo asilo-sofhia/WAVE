@@ -20,7 +20,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.example.wave.ui.theme.Spacing
 
-/** Top bar + scrollable content column with the standard gutter. */
+/**
+ * Top bar + content column with the standard gutter. Scrolls by default; with [scrollable] = false the
+ * content gets exactly the space below the top bar, so children can use `Modifier.weight` to fill it.
+ */
 @Composable
 fun WaveScreen(
     title: String?,
@@ -28,6 +31,7 @@ fun WaveScreen(
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
     horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    scrollable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier.fillMaxSize()) {
@@ -36,7 +40,7 @@ fun WaveScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .verticalScroll(rememberScrollState())
+                .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier)
                 .padding(horizontal = Spacing.gutter),
             verticalArrangement = Arrangement.spacedBy(Spacing.l),
             horizontalAlignment = horizontalAlignment,

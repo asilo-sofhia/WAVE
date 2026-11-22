@@ -32,7 +32,7 @@ enum class WarningReason(val title: String, val explanation: String) {
 
 // ✅ model/ExitPathStatus.kt, model/WaveyMood.kt (waveyMoodFor), model/QrResult.kt: unchanged
 enum class ExitPathStatus { PENDING, PASSED, FAILED }
-enum class WaveyMood { NORMAL, HAPPY, UNCOMFORTABLE, CURIOUS, BRUISED, QR_PEEK }
+enum class WaveyMood { NORMAL, HAPPY, UNCOMFORTABLE, CURIOUS, SCARED, QR_PEEK, WAVING, SAD }
 enum class QrResult { VALID, UNSIGNED, MALFORMED, UNKNOWN_KEY, BAD_SIGNATURE, EXPIRED }
 data class QrVerification(val result: QrResult, val network: NetworkUi?, val signer: String?,
                           val expiresAt: String?, val rawPayload: String)
