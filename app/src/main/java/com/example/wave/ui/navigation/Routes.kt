@@ -13,6 +13,12 @@ object Routes {
     const val SCAN_QR = "scanqr"
     const val MONITOR = "monitor"
 
+    // Networks ⋮ menu: Network tools and the pages it opens.
+    const val NETWORK_TOOLS = "networktools"
+    const val RADAR = "radar"
+    const val ADMIN_ACCESS = "adminaccess"
+    const val SURVEY = "survey"
+
     const val ARG_BSSID = "bssid"
     const val DETAIL = "detail/{$ARG_BSSID}"
     fun detail(bssid: String) = "detail/${Uri.encode(bssid)}"
@@ -26,8 +32,11 @@ object Routes {
     fun disconnect(reasons: List<WarningReason>) =
         "disconnect?$ARG_REASONS=${Uri.encode(reasons.joinToString(",") { it.name })}"
 
-    /** Routes that show the bottom bar. Splash, permission and Disconnect-now are full-screen. */
-    val withBottomBar = setOf(HOME, NEARBY, SCAN_QR, MONITOR, DETAIL, QR_RESULT)
+    /**
+     * Routes that show the bottom bar. Splash, permission, Disconnect-now and the Network tools sub-pages
+     * (radar, admin access, survey) are full-screen.
+     */
+    val withBottomBar = setOf(HOME, NEARBY, SCAN_QR, MONITOR, DETAIL, QR_RESULT, NETWORK_TOOLS)
 }
 
 enum class Tab(val route: String, val label: String, val icon: Int) {

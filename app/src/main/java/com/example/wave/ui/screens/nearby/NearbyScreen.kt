@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -178,6 +179,7 @@ fun NearbyRoute(
     container: AppContainer,
     onOpenNetwork: (bssid: String) -> Unit,
     onNeedPermission: () -> Unit,
+    onOpenTools: () -> Unit = {},
 ) {
     val vm = waveViewModel { NearbyViewModel(container.scanRepository, container.locationPermission) }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -186,6 +188,7 @@ fun NearbyRoute(
         onRefresh = vm::refresh,
         onOpenNetwork = onOpenNetwork,
         onNeedPermission = onNeedPermission,
+        onOpenTools = onOpenTools,
     )
 }
 
@@ -198,10 +201,19 @@ fun NearbyScreen(
     onOpenNetwork: (String) -> Unit,
     onNeedPermission: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenTools: () -> Unit = {},
 ) {
     Column(modifier.fillMaxSize()) {
         // One way to scan again: the Refresh in the summary card (as in mockup 3), so no top-bar refresh icon.
-        WaveTopBar(title = "Nearby Networks")
+        // The ⋮ opens Network tools (Wi-Fi radar, Manage registry).
+        WaveTopBar(
+            title = "Nearby Networks",
+            actions = {
+                IconButton(onClick = onOpenTools) {
+                    Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "Network tools", tint = Navy900)
+                }
+            },
+        )
         Column(
             Modifier
                 .fillMaxWidth()

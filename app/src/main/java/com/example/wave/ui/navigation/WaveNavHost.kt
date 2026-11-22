@@ -19,6 +19,10 @@ import com.example.wave.ui.screens.permission.PermissionRoute
 import com.example.wave.ui.screens.qrresult.QrResultRoute
 import com.example.wave.ui.screens.scanqr.ScanQrRoute
 import com.example.wave.ui.screens.splash.SplashRoute
+import com.example.wave.ui.screens.tools.AdminAccessScreen
+import com.example.wave.ui.screens.tools.NetworkToolsScreen
+import com.example.wave.ui.screens.tools.RadarRoute
+import com.example.wave.ui.screens.tools.SurveyRoute
 
 @Composable
 fun WaveNavHost(
@@ -62,6 +66,38 @@ fun WaveNavHost(
             NearbyRoute(
                 container = container,
                 onOpenNetwork = { nav.navigate(Routes.detail(it)) },
+                onNeedPermission = { nav.navigate(Routes.PERMISSION) },
+                onOpenTools = { nav.navigate(Routes.NETWORK_TOOLS) },
+            )
+        }
+        composable(Routes.NETWORK_TOOLS) {
+            NetworkToolsScreen(
+                onBack = { nav.popBackStack() },
+                onOpenRadar = { nav.navigate(Routes.RADAR) },
+                onManageRegistry = { nav.navigate(Routes.ADMIN_ACCESS) },
+            )
+        }
+        composable(Routes.RADAR) {
+            RadarRoute(
+                container = container,
+                onBack = { nav.popBackStack() },
+                onOpenNetwork = { nav.navigate(Routes.detail(it)) },
+                onNeedPermission = { nav.navigate(Routes.PERMISSION) },
+            )
+        }
+        composable(Routes.ADMIN_ACCESS) {
+            AdminAccessScreen(
+                onBack = { nav.popBackStack() },
+                // The access page is replaced by the survey, so Back from the survey returns to Network tools.
+                onContinue = {
+                    nav.navigate(Routes.SURVEY) { popUpTo(Routes.NETWORK_TOOLS) }
+                },
+            )
+        }
+        composable(Routes.SURVEY) {
+            SurveyRoute(
+                container = container,
+                onBack = { nav.popBackStack() },
                 onNeedPermission = { nav.navigate(Routes.PERMISSION) },
             )
         }

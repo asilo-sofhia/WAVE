@@ -134,26 +134,31 @@ fun StatusCard(
     value: String,
     modifier: Modifier = Modifier,
     style: StatusStyle? = null,
+    /** Bigger padding, tile and text (Home). */
+    large: Boolean = false,
 ) {
-    WaveCard(modifier = modifier.semantics(mergeDescendants = true) {}, padding = Spacing.m, color = Color.White) {
+    val padding = if (large) 18.dp else Spacing.m
+    WaveCard(modifier = modifier.semantics(mergeDescendants = true) {}, padding = padding, color = Color.White) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val wide = maxWidth >= 135.dp
-            val valueStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            val valueStyle = (if (large) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium)
+                .copy(fontWeight = FontWeight.Bold)
+            val labelStyle = if (large) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium
             if (wide) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusTile(icon, style, 44.dp)
-                    Spacer(Modifier.width(10.dp))
+                    StatusTile(icon, style, if (large) 52.dp else 44.dp)
+                    Spacer(Modifier.width(if (large) 12.dp else 10.dp))
                     Column(Modifier.weight(1f)) {
-                        FitText(label, style = MaterialTheme.typography.bodyMedium, color = Slate600)
+                        FitText(label, style = labelStyle, color = Slate600)
                         FitText(value, style = valueStyle, color = style?.fg ?: Navy900)
                     }
                 }
             } else {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusTile(icon, style, 40.dp)
+                        StatusTile(icon, style, if (large) 46.dp else 40.dp)
                         Spacer(Modifier.width(Spacing.s))
-                        FitText(label, style = MaterialTheme.typography.bodyMedium, color = Slate600, modifier = Modifier.weight(1f))
+                        FitText(label, style = labelStyle, color = Slate600, modifier = Modifier.weight(1f))
                     }
                     Spacer(Modifier.height(Spacing.s))
                     FitText(value, style = valueStyle, color = style?.fg ?: Navy900)
