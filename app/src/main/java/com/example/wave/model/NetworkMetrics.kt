@@ -58,6 +58,8 @@ enum class CheckKind(val title: String, val reason: WarningReason?) {
     HARDWARE_ADDRESS("Hardware address", WarningReason.LOCALLY_ADMINISTERED),
     SECURITY("Security", WarningReason.SECURITY_MISMATCH),
     SIGNAL("Signal strength", WarningReason.RSSI_OUT_OF_RANGE),
+    /** Only listed when the access point is on the campus block list. */
+    BLOCK_LIST("Campus block list", WarningReason.BLOCKED_BY_ADMIN),
 }
 
 /** PASSED = green check, FAILED = red triangle, UNKNOWN = amber "?", SKIPPED = gray (nothing to compare with). */

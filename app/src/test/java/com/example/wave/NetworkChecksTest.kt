@@ -22,7 +22,8 @@ class NetworkChecksTest {
     fun everyScannedNetworkHasMetricsAndAllChecks() {
         for (n in scanned) {
             assertNotNull("${n.ssid} metrics", n.metrics)
-            assertEquals("${n.ssid} check order", CheckKind.entries, n.checks.map { it.kind })
+            // BLOCK_LIST is only listed for access points on the campus block list (none here).
+            assertEquals("${n.ssid} check order", CheckKind.entries - CheckKind.BLOCK_LIST, n.checks.map { it.kind })
         }
     }
 

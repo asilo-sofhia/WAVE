@@ -1,5 +1,6 @@
 package com.example.wave.data.registry
 
+import com.example.wave.model.BlockedAp
 import com.example.wave.model.CampusAsn
 import com.example.wave.model.Registry
 import com.example.wave.model.RegistryAp
@@ -39,7 +40,14 @@ object RegistryJson {
             expiresAt = Instant.parse(o.getString("expires_at")),
             campusAsns = o.getJSONArray("campus_asns").objects().map { CampusAsn(it.getInt("asn"), it.getString("name")) },
             networks = o.getJSONArray("networks").objects().map(::network),
+            blocked = o.optJSONArray("blocked")?.objects()?.map(::blocked).orEmpty(),
         )
+    }
+
+    private fun blocked(b: JSONObject): BlockedAp {
+        val bssid = b.getString("bssid")
+        require(BSSID.matches(bssid)) { "blocked bssid '$bssid' must be lowercase xx:xx:xx:xx:xx:xx" }
+        return BlockedAp(bssid = bssid, ssid = b.optString("ssid", ""), reason = b.getString("reason"))
     }
 
     private fun network(n: JSONObject): RegistryNetwork {

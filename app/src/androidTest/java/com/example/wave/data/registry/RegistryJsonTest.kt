@@ -1,6 +1,7 @@
 package com.example.wave.data.registry
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.wave.model.BlockedAp
 import com.example.wave.model.SecurityType
 import com.example.wave.model.WifiBand
 import org.junit.Assert.assertEquals
@@ -64,5 +65,25 @@ class RegistryJsonTest {
         val sig = RegistryJson.parseSignature("""{ "key_id": "wave-dev", "alg": "Ed25519", "signature": "abc" }""".toByteArray())
         assertEquals("wave-dev", sig.keyId)
         assertEquals("Ed25519", sig.alg)
+    }
+
+    @Test
+    fun parsesBlockedList() {
+        val withBlocked = contractExample.trimEnd().removeSuffix("}") +
+            """, "blocked": [ { "bssid": "6a:3f:00:11:22:9c", "ssid": "BSU Free WiFi", "reason": "Rogue hotspot" } ] }"""
+        val r = RegistryJson.parse(withBlocked.toByteArray())
+        assertEquals(listOf(BlockedAp("6a:3f:00:11:22:9c", "BSU Free WiFi", "Rogue hotspot")), r.blocked)
+    }
+
+    @Test
+    fun missingBlockedIsEmpty() {
+        assertEquals(emptyList<BlockedAp>(), RegistryJson.parse(contractExample.toByteArray()).blocked)
+    }
+
+    @Test
+    fun badBlockedBssidIsRejected() {
+        val bad = contractExample.trimEnd().removeSuffix("}") +
+            """, "blocked": [ { "bssid": "6A:3F:00:11:22:9C", "ssid": "x", "reason": "r" } ] }"""
+        assertThrows(Exception::class.java) { RegistryJson.parse(bad.toByteArray()) }
     }
 }

@@ -6,6 +6,7 @@ import com.example.wave.data.wifi.bandForFrequency
 import com.example.wave.data.wifi.channelForFrequency
 import com.example.wave.data.wifi.normalizeBssid
 import com.example.wave.data.wifi.securityFromCapabilities
+import com.example.wave.model.BlockedAp
 import com.example.wave.model.CheckKind
 import com.example.wave.model.CheckOutcome
 import com.example.wave.model.NetworkUi
@@ -143,5 +144,32 @@ class RegistryClassifierTest {
             listOf(FakeFixtures.campus, FakeFixtures.twin, FakeFixtures.library, FakeFixtures.lab),
             sorted,
         )
+    }
+
+    // ---- campus block list ----
+    private val blockedRegistry = registry.copy(
+        blocked = listOf(BlockedAp("6a:3f:00:11:22:9c", "BSU Free WiFi", "Rogue hotspot")),
+    )
+
+    @Test
+    fun blockedBssidIsWarningWhateverTheName() {
+        val otherName = classifier.classify(obs(ssid = "BSU Free WiFi", bssid = "6a:3f:00:11:22:9c"), blockedRegistry)
+        assertEquals(Verdict.WARNING, otherName.verdict)
+        assertTrue(WarningReason.BLOCKED_BY_ADMIN in otherName.reasons)
+        assertEquals(CheckOutcome.FAILED, otherName.outcome(CheckKind.BLOCK_LIST))
+
+        val campusName = classifier.classify(obs(ssid = "BSU-ICT-TESTLAB", bssid = "6a:3f:00:11:22:9c"), blockedRegistry)
+        assertEquals(Verdict.WARNING, campusName.verdict)
+        assertTrue(WarningReason.BLOCKED_BY_ADMIN in campusName.reasons)
+        assertTrue(WarningReason.UNREGISTERED_BSSID in campusName.reasons)
+    }
+
+    @Test
+    fun notBlockedBehavesAsBefore() {
+        val real = classifier.classify(obs(), blockedRegistry)
+        assertEquals(Verdict.VERIFIED, real.verdict)
+        assertTrue(real.checks.none { it.kind == CheckKind.BLOCK_LIST })
+        val cafe = classifier.classify(obs(ssid = "Cafe", bssid = "00:11:22:33:44:55"), blockedRegistry)
+        assertEquals(Verdict.UNKNOWN, cafe.verdict)
     }
 }
