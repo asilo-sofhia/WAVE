@@ -7,3 +7,5 @@ registry/*.home-dev.json*
 out/
 __pycache__/
 .venv/
+# IP-to-ASN dataset (downloaded by server/update_asn_db.py)
+server/data/

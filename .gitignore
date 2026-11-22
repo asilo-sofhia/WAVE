@@ -58,6 +58,8 @@ app/src/debug/assets/registry/
 # Generated QR images contain Wi-Fi passwords
 backend/out/
 backend/.venv/
+# IP-to-ASN dataset (downloaded by backend/server/update_asn_db.py)
+backend/server/data/
 __pycache__/
 
 # Lint outputs

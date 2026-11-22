@@ -1,0 +1,7 @@
+# WAVE FastAPI server (backend/server). Python >= 3.11.
+# Licenses: fastapi MIT (starlette BSD-3-Clause, pydantic MIT), uvicorn BSD-3-Clause, httpx BSD-3-Clause.
+-r requirements.txt
+fastapi>=0.162,<1
+uvicorn[standard]>=0.54
+# tests only (FastAPI's TestClient)
+httpx>=0.28
