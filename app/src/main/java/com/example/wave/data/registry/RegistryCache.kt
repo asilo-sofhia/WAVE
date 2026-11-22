@@ -17,8 +17,8 @@ class RegistryCache(private val dir: File) {
     /** Null when nothing is saved, or a file is missing, empty or unreadable. */
     fun read(): SignedRegistry? = try {
         val bytes = bytesFile.readBytes()
-        val keyId = keyFile.readText().trim()
-        val sig = sigFile.readText().trim()
+        val keyId = keyFile.readText()
+        val sig = sigFile.readText()
         if (bytes.isEmpty() || keyId.isEmpty() || sig.isEmpty()) null else SignedRegistry(bytes, keyId, sig)
     } catch (_: IOException) {
         null
