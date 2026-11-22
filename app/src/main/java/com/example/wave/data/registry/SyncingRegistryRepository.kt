@@ -92,8 +92,15 @@ class SyncingRegistryRepository(
                 RegistrySync.Rejected("older version v$newVersion; this phone has v$current")
             current != null && newVersion == current -> RegistrySync.UpToDate(current)
             else -> {
-                withContext(Dispatchers.IO) { cache.write(file) }
+                // Verified, so it's safe to use right away, even if saving it fails (e.g. storage full).
                 _state.value = downloaded
+                try {
+                    withContext(Dispatchers.IO) { cache.write(file) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Not saved: this run still uses it, and the next sync saves it again.
+                }
                 RegistrySync.Updated(newVersion)
             }
         }

@@ -29,6 +29,7 @@ import com.example.wave.data.wifi.AndroidWifiScanner
 import com.example.wave.data.wifi.WifiJoiner
 import com.example.wave.data.wifi.WifiScanRepository
 import com.example.wave.domain.RegistryClassifier
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,7 +47,11 @@ import java.io.File
  * QR codes are read from the camera / gallery in both modes; real mode verifies their signature for real.
  */
 class AppContainer(context: Context) {
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Background work (registry sync, scans). A failure there is logged, never a crash. */
+    private val appScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default +
+            CoroutineExceptionHandler { _, e -> android.util.Log.w("WaveApp", "Background task failed", e) },
+    )
     private val prefs = context.getSharedPreferences("wave_prefs", Context.MODE_PRIVATE)
 
     val onboarding = OnboardingPrefs(prefs)

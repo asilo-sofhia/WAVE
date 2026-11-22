@@ -137,4 +137,20 @@ class SyncingRegistryRepositoryTest {
         r.sync(force = true)
         assertEquals(2, downloader.calls.get())
     }
+
+    /** E.g. storage full: the verified registry is still used in memory, and nothing escapes to crash the app. */
+    @Test
+    fun saveFailureStillUsesNewRegistry() = runBlocking {
+        val notADir = File(tmp.root, "blocked").apply { writeText("a file where the folder should be") }
+        val r = SyncingRegistryRepository(
+            bundled = { signed("v1") },
+            cache = RegistryCache(notADir),
+            downloader = FakeDownloader { signed("v2") },
+            verifier = fakeVerifier,
+            clock = { now },
+        )
+        r.loadLocal()
+        assertEquals(RegistrySync.Updated(2), r.sync())
+        assertEquals(2, r.version)
+    }
 }
