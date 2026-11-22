@@ -1,5 +1,6 @@
 """Tests for the WAVE FastAPI server (backend/server). Run from backend/: python -m pytest -q"""
 import base64
+import ipaddress
 import json
 import os
 import sys
@@ -324,6 +325,62 @@ def test_forwarded_mode_ignores_cf_header_and_bad_values(tmp_path, asn_file):
     assert exit_path(tmp_path, asn_file, "10.0.0.2", {"CF-Connecting-IP": DITO_IP}, **kw).json()["asn"] is None
     garbage = exit_path(tmp_path, asn_file, "10.0.0.2", {"X-Forwarded-For": f"{DITO_IP}, not-an-ip"}, **kw).json()
     assert garbage["asn"] is None and "proxy didn't say" in garbage["note"]
+
+
+# ---- "header" mode (platforms like Render: one named header, trusted only from the proxy's internal range) ----
+RENDER = dict(
+    trusted_proxy="header",
+    client_ip_header="true-client-ip",
+    trusted_proxy_cidrs=(ipaddress.ip_network("10.0.0.0/8"),),
+)
+
+
+def test_header_mode_uses_the_named_header_from_a_trusted_range(tmp_path, asn_file):
+    r = exit_path(tmp_path, asn_file, "10.1.2.3", {"True-Client-IP": DITO_IP}, **RENDER)
+    assert r.json()["asn"] == 139831
+
+
+def test_header_mode_ignores_untrusted_peer(tmp_path, asn_file):
+    headers = {**SPOOF, "True-Client-IP": DITO_IP}
+    body = exit_path(tmp_path, asn_file, GLOBE_IP, headers, **RENDER).json()
+    assert body["asn"] == 4775 and body["public_ip"] == GLOBE_IP
+
+
+def test_header_mode_ignores_other_forwarding_headers(tmp_path, asn_file):
+    body = exit_path(tmp_path, asn_file, "10.1.2.3", SPOOF, **RENDER).json()
+    assert body["asn"] is None and "proxy didn't say" in body["note"]
+
+
+def test_header_mode_counts_from_the_right(tmp_path, asn_file):
+    xff = {"X-Forwarded-For": f"{GLOBE_IP}, {DITO_IP}, 10.9.9.9"}  # client-sent GLOBE on the left
+    kw = {**RENDER, "client_ip_header": "x-forwarded-for"}
+    assert exit_path(tmp_path, asn_file, "10.1.2.3", xff, **kw, client_ip_from_right=2).json()["asn"] == 139831
+    nearest = exit_path(tmp_path, asn_file, "10.1.2.3", xff, **kw, client_ip_from_right=1).json()
+    assert nearest["asn"] is None and "private or local address" in nearest["note"]
+    too_far = exit_path(tmp_path, asn_file, "10.1.2.3", xff, **kw, client_ip_from_right=4).json()
+    assert too_far["asn"] is None and "proxy didn't say" in too_far["note"]
+
+
+def test_header_mode_garbage_is_unknown(tmp_path, asn_file):
+    body = exit_path(tmp_path, asn_file, "10.1.2.3", {"True-Client-IP": "not-an-ip"}, **RENDER).json()
+    assert body["asn"] is None and "proxy didn't say" in body["note"]
+
+
+def test_header_mode_config_errors():
+    with pytest.raises(ConfigError, match="WAVE_CLIENT_IP_HEADER"):
+        Settings.from_env({"WAVE_TRUSTED_PROXY": "header"})
+    with pytest.raises(ConfigError, match="WAVE_TRUSTED_PROXY_CIDRS"):
+        Settings.from_env({"WAVE_TRUSTED_PROXY": "header", "WAVE_CLIENT_IP_HEADER": "True-Client-IP"})
+    base = {"WAVE_TRUSTED_PROXY": "header", "WAVE_CLIENT_IP_HEADER": "True-Client-IP"}
+    with pytest.raises(ConfigError, match="10.0.0.0/33"):
+        Settings.from_env({**base, "WAVE_TRUSTED_PROXY_CIDRS": "10.0.0.0/33"})
+    for bad in ("0", "-1", "two"):
+        with pytest.raises(ConfigError, match="WAVE_CLIENT_IP_FROM_RIGHT"):
+            Settings.from_env({**base, "WAVE_TRUSTED_PROXY_CIDRS": "10.0.0.0/8", "WAVE_CLIENT_IP_FROM_RIGHT": bad})
+    ok = Settings.from_env({**base, "WAVE_TRUSTED_PROXY_CIDRS": "10.0.0.0/8, fc00::/7", "WAVE_CLIENT_IP_FROM_RIGHT": "2"})
+    assert ok.client_ip_header == "true-client-ip"
+    assert ok.trusted_proxy_cidrs == (ipaddress.ip_network("10.0.0.0/8"), ipaddress.ip_network("fc00::/7"))
+    assert ok.client_ip_from_right == 2
 
 
 def test_server_has_no_write_endpoints_and_no_cors(tmp_path, asn_file):
