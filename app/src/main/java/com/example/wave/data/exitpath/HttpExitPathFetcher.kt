@@ -1,7 +1,11 @@
 package com.example.wave.data.exitpath
 
 import android.net.Network
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -12,6 +16,8 @@ import javax.net.ssl.HttpsURLConnection
  * `GET <server>/v1/exit-path`, sent over the Wi-Fi [Network] (CONTRACT §4). Opening the connection from the
  * Wi-Fi network object means Android can't route it over mobile data, which would report the carrier's ASN.
  *
+ * Cancelling the call closes the connection, so a blocked connect or read ends right away.
+ *
  * @param serverUrl the base address (https, no trailing slash), or null when none is set.
  * @param wifiNetwork the connected Wi-Fi network, or null when not on Wi-Fi.
  */
@@ -20,11 +26,27 @@ class HttpExitPathFetcher(
     private val wifiNetwork: () -> Network?,
 ) : ExitPathFetcher {
 
-    override suspend fun fetch(): ExitPathAnswer = withContext(Dispatchers.IO) {
+    override suspend fun fetch(): ExitPathAnswer = coroutineScope {
         val base = serverUrl()?.takeIf { it.isNotBlank() } ?: throw IOException("No server address set")
         val network = wifiNetwork() ?: throw IOException("Not on Wi-Fi")
-        val conn = network.openConnection(URL("$base/v1/exit-path")) as? HttpsURLConnection
+        val conn = withContext(Dispatchers.IO) { network.openConnection(URL("$base/v1/exit-path")) } as? HttpsURLConnection
             ?: throw IOException("The server address must start with https://")
+        // Blocking socket calls ignore coroutine cancellation; disconnect() from another thread unblocks them.
+        val abortOnCancel = launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                awaitCancellation()
+            } finally {
+                conn.disconnect()
+            }
+        }
+        try {
+            withContext(Dispatchers.IO) { request(conn) }
+        } finally {
+            abortOnCancel.cancel()
+        }
+    }
+
+    private fun request(conn: HttpsURLConnection): ExitPathAnswer {
         try {
             conn.useCaches = false
             conn.connectTimeout = CONNECT_TIMEOUT_MS
@@ -32,11 +54,8 @@ class HttpExitPathFetcher(
             conn.setRequestProperty("Accept", "application/json")
             val code = conn.responseCode
             if (code != HttpURLConnection.HTTP_OK) throw IOException("HTTP $code")
-            val body = conn.inputStream.use { input ->
-                val bytes = input.readNBytesCompat(MAX_BODY_BYTES)
-                String(bytes, Charsets.UTF_8)
-            }
-            parseExitPathAnswer(body)
+            val body = conn.inputStream.use { input -> String(input.readNBytesCompat(MAX_BODY_BYTES), Charsets.UTF_8) }
+            return parseExitPathAnswer(body)
         } finally {
             conn.disconnect()
         }

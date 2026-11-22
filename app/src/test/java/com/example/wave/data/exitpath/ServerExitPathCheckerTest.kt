@@ -10,17 +10,22 @@ import com.example.wave.model.ExitPathStatus.PENDING
 import com.example.wave.model.ExitPathStatus.UNREACHABLE
 import com.example.wave.model.Registry
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class ServerExitPathCheckerTest {
@@ -63,14 +68,41 @@ class ServerExitPathCheckerTest {
         assertEquals(listOf(PENDING, FAILED), run(checker(CountingFetcher { answer(9299) }, 4775)))
     }
 
+    /** A registry whose campus ASN was never measured (placeholder 0) can't judge anything: never FAILED. */
     @Test
-    fun placeholderAsnZeroNeverMatches() {
-        assertEquals(listOf(PENDING, FAILED), run(checker(CountingFetcher { answer(0) }, 0)))
+    fun placeholderAsnZeroCantBeChecked() {
+        val fetcher = CountingFetcher { answer(0) }
+        assertEquals(listOf(PENDING, UNREACHABLE), run(checker(fetcher, 0)))
+        assertEquals(0, fetcher.calls.get())
     }
 
     @Test
-    fun emptyCampusAsnsFails() {
-        assertEquals(listOf(PENDING, FAILED), run(checker(CountingFetcher { answer(4775) })))
+    fun emptyCampusAsnsCantBeChecked() {
+        val fetcher = CountingFetcher { answer(4775) }
+        assertEquals(listOf(PENDING, UNREACHABLE), run(checker(fetcher)))
+        assertEquals(0, fetcher.calls.get())
+    }
+
+    /** E.g. SecurityException from a per-app network block: must not crash the screen. */
+    @Test
+    fun nonIoExceptionCountsAsFailedAttempt() {
+        val fetcher = CountingFetcher { throw SecurityException("Permission denied (missing INTERNET permission?)") }
+        assertEquals(listOf(PENDING, UNREACHABLE), run(checker(fetcher, 4775)))
+        assertEquals(3, fetcher.calls.get())
+    }
+
+    /** A real HTTP call blocks a thread and ignores coroutine cancellation; the 30 s limit must still hold. */
+    @Test
+    fun threadBlockingFetcherStillTimesOut() {
+        val release = CountDownLatch(1)
+        val fetcher = CountingFetcher { withContext(Dispatchers.IO) { release.await(5, TimeUnit.SECONDS) }; answer(4775) }
+        val start = System.nanoTime()
+        try {
+            assertEquals(listOf(PENDING, UNREACHABLE), runBlocking { checker(fetcher, 4775, timeoutMs = 200).check(FakeFixtures.campus).toList() })
+            assertTrue("took ${(System.nanoTime() - start) / 1_000_000} ms", System.nanoTime() - start < 1_500_000_000L)
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test

@@ -23,6 +23,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.wave.data.exitpath.ExitPathAnswer
 import com.example.wave.di.AppContainer
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import com.example.wave.ui.components.LocalOpenDebugMenu
 import com.example.wave.ui.components.WaveBackground
 import com.example.wave.ui.debug.DebugMenuSheet
@@ -92,8 +94,10 @@ fun WaveApp(container: AppContainer) {
                 onTestServer = container.exitPathFetcher?.let { fetcher ->
                     suspend {
                         try {
-                            fetcher.fetch().describe()
-                        } catch (e: java.io.IOException) {
+                            withTimeoutOrNull(30_000) { fetcher.fetch().describe() } ?: "No answer within 30 s"
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) { // IOException, SecurityException (per-app network block), ...
                             "No answer: ${e.message ?: e.javaClass.simpleName}"
                         }
                     }

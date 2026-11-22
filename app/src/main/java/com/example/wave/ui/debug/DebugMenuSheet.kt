@@ -220,8 +220,11 @@ private fun ServerSection(serverUrl: String?, onSave: (String) -> Boolean, onTes
                 testing = true
                 status = "Asking the server…"
                 scope.launch {
-                    status = onTest()
-                    testing = false
+                    try {
+                        status = onTest()
+                    } finally {
+                        testing = false
+                    }
                 }
             },
             modifier = Modifier.weight(1f),
