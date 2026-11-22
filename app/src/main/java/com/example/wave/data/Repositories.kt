@@ -108,7 +108,7 @@ val RegistryState.registryOrNull: Registry?
 interface RegistryRepository {
     val state: StateFlow<RegistryState>
 
-    /** Load again (today: the bundled file; later: download from /v1/registry). Never replaces a good registry with a bad one. */
+    /** Downloads the newest signed registry from the server (at most once a minute) and keeps it if it's newer. Never replaces a good registry with a bad one. */
     suspend fun refresh(): RegistryState
 }
 

@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.wave.data.exitpath.ExitPathAnswer
+import com.example.wave.data.registry.RegistrySync
 import com.example.wave.di.AppContainer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
@@ -102,9 +103,31 @@ fun WaveApp(container: AppContainer) {
                         }
                     }
                 },
+                onUpdateRegistry = if (container.realWifi) {
+                    suspend {
+                        try {
+                            withTimeoutOrNull(30_000) { container.registrySync().describe() } ?: "No answer within 30 s"
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            "No answer: ${e.message ?: e.javaClass.simpleName}"
+                        }
+                    }
+                } else {
+                    null
+                },
             )
         }
     }
+}
+
+/** One line for the debug menu's Update registry button. */
+private fun RegistrySync.describe(): String = when (this) {
+    is RegistrySync.Updated -> "Registry v$version downloaded"
+    is RegistrySync.UpToDate -> "Already up to date (v$version)"
+    is RegistrySync.Rejected -> "Rejected: $reason"
+    is RegistrySync.Failed -> "No answer: $message"
+    RegistrySync.Skipped -> "Checked less than a minute ago"
 }
 
 /** One line for the debug menu's Test button. */

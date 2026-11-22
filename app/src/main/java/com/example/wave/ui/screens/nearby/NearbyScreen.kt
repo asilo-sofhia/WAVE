@@ -55,6 +55,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.example.wave.R
 import com.example.wave.data.LocationPermissionGate
+import com.example.wave.data.RegistryRepository
+import com.example.wave.data.RegistryState
+import com.example.wave.data.registryOrNull
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import com.example.wave.data.ScanRepository
 import com.example.wave.data.fake.FakeFixtures
 import com.example.wave.di.AppContainer
@@ -98,9 +105,14 @@ sealed interface NearbyUiState {
     data class Loaded(val result: ScanResult) : NearbyUiState
 }
 
+/** Each time a different registry version takes over (not the version already there when collecting starts). */
+internal fun registryVersionChanges(state: Flow<RegistryState>): Flow<Int?> =
+    state.map { it.registryOrNull?.version }.distinctUntilChanged().drop(1)
+
 class NearbyViewModel(
     private val repo: ScanRepository,
     permission: LocationPermissionGate,
+    private val registry: RegistryRepository? = null,
 ) : ViewModel() {
     private val scan = MutableStateFlow<ScanResult?>(null)
     private var job: Job? = null
@@ -118,6 +130,18 @@ class NearbyViewModel(
         viewModelScope.launch {
             permission.granted.collect { granted -> if (granted && scan.value == null) refresh() }
         }
+        // A new registry (downloaded, or a newer saved copy) re-judges the list that's on screen.
+        registry?.let { r ->
+            viewModelScope.launch {
+                registryVersionChanges(r.state).collect { if (scan.value != null) rescan() }
+            }
+        }
+    }
+
+    /** Scan and judge again, keeping the current list on screen until the new one is ready. */
+    private fun rescan() {
+        job?.cancel()
+        job = viewModelScope.launch { scan.value = repo.scanNearby() }
     }
 
     fun refresh() {
@@ -126,6 +150,8 @@ class NearbyViewModel(
             scan.value = null
             scan.value = repo.scanNearby()
         }
+        // Also ask the server for a newer registry (at most once a minute); if one lands, the list is re-judged.
+        registry?.let { viewModelScope.launch { it.refresh() } }
     }
 }
 
@@ -179,7 +205,7 @@ fun NearbyRoute(
     onOpenNetwork: (bssid: String) -> Unit,
     onNeedPermission: () -> Unit,
 ) {
-    val vm = waveViewModel { NearbyViewModel(container.scanRepository, container.locationPermission) }
+    val vm = waveViewModel { NearbyViewModel(container.scanRepository, container.locationPermission, container.registryRepository) }
     val state by vm.state.collectAsStateWithLifecycle()
     NearbyScreen(
         state = state,

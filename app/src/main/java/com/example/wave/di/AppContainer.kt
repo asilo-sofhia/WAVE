@@ -18,15 +18,23 @@ import com.example.wave.data.fake.FakeScanRepository
 import com.example.wave.data.fake.ScenarioStore
 import com.example.wave.data.qr.QrImageReader
 import com.example.wave.data.qr.SignedQrVerifier
-import com.example.wave.data.registry.BundledRegistryRepository
+import com.example.wave.data.registry.HttpRegistryDownloader
+import com.example.wave.data.registry.RegistryCache
+import com.example.wave.data.registry.RegistrySync
+import com.example.wave.data.registry.SignatureRegistryVerifier
+import com.example.wave.data.registry.SyncingRegistryRepository
+import com.example.wave.data.registry.readBundledRegistry
 import com.example.wave.data.wifi.AndroidLocationPermissionGate
 import com.example.wave.data.wifi.AndroidWifiScanner
 import com.example.wave.data.wifi.WifiJoiner
 import com.example.wave.data.wifi.WifiScanRepository
 import com.example.wave.domain.RegistryClassifier
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * Manual DI. Screens only see the interfaces below; real and fake implementations are swapped here only.
@@ -39,7 +47,11 @@ import kotlinx.coroutines.SupervisorJob
  * QR codes are read from the camera / gallery in both modes; real mode verifies their signature for real.
  */
 class AppContainer(context: Context) {
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Background work (registry sync, scans). A failure there is logged, never a crash. */
+    private val appScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default +
+            CoroutineExceptionHandler { _, e -> android.util.Log.w("WaveApp", "Background task failed", e) },
+    )
     private val prefs = context.getSharedPreferences("wave_prefs", Context.MODE_PRIVATE)
 
     val onboarding = OnboardingPrefs(prefs)
@@ -65,8 +77,25 @@ class AppContainer(context: Context) {
 
     val locationPermission: LocationPermissionGate = androidPermissionGate ?: FakeLocationPermissionGate(store)
 
-    /** The signed registry. Only trusted after its Ed25519 signature checks out; Missing until then. */
-    val registryRepository: RegistryRepository = BundledRegistryRepository(context, appScope)
+    /** The WAVE server's address: set in the debug menu, default from the wave.serverUrl Gradle property. */
+    val serverSettings = ServerSettings(prefs)
+
+    /**
+     * The signed registry: the newer of the copy bundled in the app and the copy saved on the phone, updated from
+     * the server's /v1/registry on start and on Refresh (never to an older version). Only trusted after its
+     * Ed25519 signature checks out; Missing until then.
+     */
+    private val syncingRegistry = SyncingRegistryRepository(
+        bundled = { readBundledRegistry(context) },
+        cache = RegistryCache(File(context.filesDir, "registry")),
+        downloader = HttpRegistryDownloader(serverSettings::current),
+        verifier = SignatureRegistryVerifier(),
+    ).also { repo -> appScope.launch { repo.start() } }
+
+    val registryRepository: RegistryRepository = syncingRegistry
+
+    /** Asks the server for its registry now (debug menu's Update registry button). */
+    val registrySync: suspend () -> RegistrySync = { syncingRegistry.sync(force = true) }
 
     val classifier: NetworkClassifier = RegistryClassifier()
 
@@ -93,9 +122,6 @@ class AppContainer(context: Context) {
 
     /** Reads QR codes from the camera and from gallery pictures (ML Kit, offline). Used in both modes. */
     val qrImageReader: QrImageReader by lazy { QrImageReader(context) }
-
-    /** The exit-path server's address: set in the debug menu, default from the wave.serverUrl Gradle property. */
-    val serverSettings = ServerSettings(prefs)
 
     /** One request to the server over the current Wi-Fi. Null in demo mode. Also used by the debug menu's Test button. */
     val exitPathFetcher: ExitPathFetcher? =
