@@ -283,6 +283,32 @@ def validate_registry(data: bytes) -> tuple[dict, list[str], list[str]]:
                 errors.append(f"{aw}: need integers -120 <= rssi_min <= rssi_max <= 0")
             if not isinstance(ap.get("building"), str):
                 errors.append(f"{aw}.building: string required")
+
+    # Optional: access points the campus admin marked as not theirs. Phones show them as Warning.
+    blocked = reg.get("blocked", [])
+    if not isinstance(blocked, list):
+        errors.append("blocked: must be a list (or left out)")
+        blocked = []
+    seen_blocked: dict[str, str] = {}
+    for b_i, entry in enumerate(blocked):
+        bw = f"blocked[{b_i}]"
+        if not isinstance(entry, dict):
+            errors.append(f"{bw}: must be an object")
+            continue
+        bssid = entry.get("bssid")
+        if not isinstance(bssid, str) or not BSSID_RE.match(bssid):
+            errors.append(f"{bw}.bssid: must be lowercase xx:xx:xx:xx:xx:xx")
+        else:
+            if bssid in seen_blocked:
+                errors.append(f"{bw}.bssid: duplicate of {seen_blocked[bssid]}")
+            seen_blocked[bssid] = bw
+            if bssid in seen_bssids:
+                errors.append(f"{bw}.bssid {bssid} is also approved in {seen_bssids[bssid]}: it can't be both")
+        if not isinstance(entry.get("ssid"), str):
+            errors.append(f"{bw}.ssid: string required (may be empty for hidden networks)")
+        reason = entry.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            errors.append(f"{bw}.reason: say why it is blocked")
     return reg, errors, warnings
 
 
