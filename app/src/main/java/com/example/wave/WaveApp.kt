@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.wave.data.exitpath.ExitPathAnswer
 import com.example.wave.di.AppContainer
 import com.example.wave.ui.components.LocalOpenDebugMenu
 import com.example.wave.ui.components.WaveBackground
@@ -86,10 +87,26 @@ fun WaveApp(container: AppContainer) {
                     container.setRealWifi(real)
                     restartApp(context)
                 },
+                serverUrl = container.serverSettings.current(),
+                onSaveServerUrl = container.serverSettings::save,
+                onTestServer = container.exitPathFetcher?.let { fetcher ->
+                    suspend {
+                        try {
+                            fetcher.fetch().describe()
+                        } catch (e: java.io.IOException) {
+                            "No answer: ${e.message ?: e.javaClass.simpleName}"
+                        }
+                    }
+                },
             )
         }
     }
 }
+
+/** One line for the debug menu's Test button. */
+private fun ExitPathAnswer.describe(): String =
+    if (asn != null) "ASN $asn · ${asName ?: "?"} · ${publicIp ?: "?"}"
+    else "The server answered but can't tell the ASN: ${note ?: "no reason given"}"
 
 /** Relaunch the app in a fresh process so AppContainer is rebuilt (used by the debug menu's data-source switch). */
 private fun restartApp(context: Context) {

@@ -7,7 +7,10 @@ import com.example.wave.data.NetworkClassifier
 import com.example.wave.data.QrVerifier
 import com.example.wave.data.RegistryRepository
 import com.example.wave.data.ScanRepository
-import com.example.wave.data.exitpath.UnavailableExitPathChecker
+import com.example.wave.data.exitpath.ExitPathFetcher
+import com.example.wave.data.exitpath.HttpExitPathFetcher
+import com.example.wave.data.exitpath.ServerExitPathChecker
+import com.example.wave.data.exitpath.ServerSettings
 import com.example.wave.data.fake.FakeExitPathChecker
 import com.example.wave.data.fake.FakeLocationPermissionGate
 import com.example.wave.data.fake.FakeQrVerifier
@@ -30,8 +33,8 @@ import kotlinx.coroutines.SupervisorJob
  *
  * [realWifi] (default on, switchable in the debug menu, applied on restart):
  * - on:  real Wi-Fi scanning, connection and location permission, judged against the signed registry bundled
- *        in the app (debug builds: your home test registry, if backend/registry has a signed one). The exit-path
- *        server isn't built yet, so the exit path stays PENDING.
+ *        in the app (debug builds: your home test registry, if backend/registry has a signed one). Verified
+ *        networks also get the exit-path check from the WAVE server in [serverSettings] (CONTRACT §4).
  * - off: the demo scenarios (fake data), exactly as in the frontend phase.
  * QR codes are read from the camera / gallery in both modes; real mode verifies their signature for real.
  */
@@ -67,10 +70,13 @@ class AppContainer(context: Context) {
 
     val classifier: NetworkClassifier = RegistryClassifier()
 
+    private val androidScanner: AndroidWifiScanner? =
+        if (realWifi) AndroidWifiScanner(context, appScope, locationPermission.granted) else null
+
     val scanRepository: ScanRepository =
-        if (realWifi) {
+        if (androidScanner != null) {
             WifiScanRepository(
-                scanner = AndroidWifiScanner(context, appScope, locationPermission.granted),
+                scanner = androidScanner,
                 registry = registryRepository.state,
                 classifier = classifier,
                 scope = appScope,
@@ -88,7 +94,15 @@ class AppContainer(context: Context) {
     /** Reads QR codes from the camera and from gallery pictures (ML Kit, offline). Used in both modes. */
     val qrImageReader: QrImageReader by lazy { QrImageReader(context) }
 
-    val exitPathChecker: ExitPathChecker = if (realWifi) UnavailableExitPathChecker() else FakeExitPathChecker(store)
+    /** The exit-path server's address: set in the debug menu, default from the wave.serverUrl Gradle property. */
+    val serverSettings = ServerSettings(prefs)
+
+    /** One request to the server over the current Wi-Fi. Null in demo mode. Also used by the debug menu's Test button. */
+    val exitPathFetcher: ExitPathFetcher? =
+        androidScanner?.let { scanner -> HttpExitPathFetcher(serverSettings::current) { scanner.currentNetwork } }
+
+    val exitPathChecker: ExitPathChecker =
+        exitPathFetcher?.let { ServerExitPathChecker(it, registryRepository.state) } ?: FakeExitPathChecker(store)
 
     private companion object {
         const val KEY_FAKE_LOCATION = "fake_location_granted"

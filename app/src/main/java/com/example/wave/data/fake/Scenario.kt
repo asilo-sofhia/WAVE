@@ -45,6 +45,11 @@ enum class Scenario(
         listOf(FakeFixtures.campus, FakeFixtures.lab),
         FakeFixtures.campus, ExitPathStatus.FAILED, QrResult.VALID,
     ),
+    SERVER_UNREACHABLE(
+        "Server unreachable",
+        listOf(FakeFixtures.campus, FakeFixtures.lab),
+        FakeFixtures.campus, ExitPathStatus.UNREACHABLE, QrResult.VALID,
+    ),
     CONNECTED_TO_TWIN(
         "Connected to twin",
         listOf(FakeFixtures.campus, FakeFixtures.twin, FakeFixtures.library, FakeFixtures.lab),

@@ -56,6 +56,7 @@ import com.example.wave.model.Verdict
 import com.example.wave.model.WarningReason
 import com.example.wave.model.WaveyMood
 import com.example.wave.model.waveyMoodFor
+import com.example.wave.model.needsExitPathCheck
 import com.example.wave.model.withExitPath
 import com.example.wave.ui.components.HeroCard
 import com.example.wave.ui.components.LogoTile
@@ -94,7 +95,7 @@ sealed interface HomeCheck {
     data object Checking : HomeCheck
     data object NotOnWifi : HomeCheck
 
-    /** [exitPath] is null when the exit-path check was skipped (network already a WARNING). */
+    /** [exitPath] is null when the exit-path check was skipped (only Verified networks are checked). */
     data class Checked(val network: NetworkUi, val exitPath: ExitPathStatus?) : HomeCheck {
         val effective: NetworkUi get() = network.withExitPath(exitPath)
     }
@@ -139,7 +140,7 @@ class HomeViewModel(
                 check.value = HomeCheck.NotChecked
                 return@launch
             }
-            if (network.verdict == Verdict.WARNING) {
+            if (!network.needsExitPathCheck()) {
                 check.value = HomeCheck.Checked(network, exitPath = null)
                 return@launch
             }
@@ -368,6 +369,7 @@ private fun bubbleText(state: HomeUiState): Pair<String, String> = when (val c =
         state.unsafe -> "Disconnect now!" to "This network looks fake."
         c.effective.verdict == Verdict.UNKNOWN -> "I can't verify this one" to "Avoid logging in to important accounts."
         c.exitPath == ExitPathStatus.PASSED -> "All clear!" to "This is the real network."
+        c.exitPath == ExitPathStatus.UNREACHABLE -> "Server unreachable" to "I couldn't finish the check. Don't enter passwords yet."
         else -> "Registry looks right" to "Now checking where your traffic goes…"
     }
 }
@@ -388,6 +390,7 @@ private fun hintText(state: HomeUiState): String = when (val c = state.check) {
     is HomeCheck.Checked -> when {
         state.unsafe -> "Don't log in or pay for anything on this network."
         c.exitPath == ExitPathStatus.PENDING -> "Exit-path check in progress…"
+        c.exitPath == ExitPathStatus.UNREACHABLE -> "Check that the WAVE server is running, then tap Check again."
         else -> "Checked just now."
     }
 }
@@ -411,10 +414,16 @@ private fun HomeWarningPreview() = PreviewOf(
     HomeUiState("BATSTATEU-ICT", HomeCheck.Checked(FakeFixtures.twin, null)),
 )
 
+@Preview(showSystemUi = true, name = "Server unreachable")
+@Composable
+private fun HomeUnreachablePreview() = PreviewOf(
+    HomeUiState("BATSTATEU-ICT", HomeCheck.Checked(FakeFixtures.campus, ExitPathStatus.UNREACHABLE)),
+)
+
 @Preview(showSystemUi = true, name = "Unknown")
 @Composable
 private fun HomeUnknownPreview() = PreviewOf(
-    HomeUiState("Library Guest", HomeCheck.Checked(FakeFixtures.library, ExitPathStatus.PASSED)),
+    HomeUiState("Library Guest", HomeCheck.Checked(FakeFixtures.library, null)),
 )
 
 @Preview(showSystemUi = true, name = "Loading")

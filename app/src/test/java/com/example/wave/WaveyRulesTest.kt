@@ -1,6 +1,7 @@
 package com.example.wave
 
 import com.example.wave.data.fake.FakeFixtures
+import com.example.wave.data.fake.Scenario
 import com.example.wave.model.ExitPathStatus
 import com.example.wave.model.QrResult
 import com.example.wave.model.Verdict
@@ -102,5 +103,10 @@ class WaveyRulesTest {
         assertEquals(true, FakeFixtures.campus.needsExitPathCheck())
         assertEquals(false, FakeFixtures.library.needsExitPathCheck()) // UNKNOWN
         assertEquals(false, FakeFixtures.twin.needsExitPathCheck()) // WARNING
+    }
+
+    @Test
+    fun scenarioCoversUnreachable() {
+        assertEquals(true, Scenario.entries.any { it.exitPath == ExitPathStatus.UNREACHABLE })
     }
 }
