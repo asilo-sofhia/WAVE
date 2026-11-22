@@ -123,6 +123,33 @@ Keep `--host 127.0.0.1`: in `cloudflare` mode the header is trusted only from th
 
 **Point the app at the server.** In a debug build, long-press the WAVE logo to open the demo menu, paste the `https://…` address under **Exit-path server**, tap **Save**, then **Test server**. To build the app with an address already set, add `wave.serverUrl=https://…` to `%USERPROFILE%\.gradle\gradle.properties` (or to the project's `gradle.properties` once the address is permanent, e.g. on Render). Only `https://` addresses are accepted. The app also downloads the signed registry from the same address (`/v1/registry`) when it starts and when you tap Refresh on Networks, and keeps it only if its version is higher than the one it has; **Update registry** in the demo menu does it right away.
 
+**5. Deploy on Render** (the public server, `https://wave-fkn3.onrender.com`)
+
+Render → the **WAVE** Web Service (free instance):
+
+| Setting | Value |
+|---|---|
+| Branch | `main` |
+| Root Directory | `backend` |
+| Build Command | `pip install -r requirements-server.txt && python server/update_asn_db.py` |
+| Start Command | `uvicorn server.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers` |
+| Health Check Path | `/v1/health` |
+| Environment | `PYTHON_VERSION=3.13.14`, `WAVE_TRUSTED_PROXY=cloudflare` |
+
+> **Keep `--no-proxy-headers`.** Without it, uvicorn replaces the connection's address with the left-most `X-Forwarded-For` entry, which the client writes itself, so anyone could pretend to have any IP (tested: `X-Forwarded-For: 8.8.8.8` was reported as Google). With it, the server sees Render's relay on `127.0.0.1`, and `cloudflare` mode trusts only `CF-Connecting-IP` from there. Cloudflare rejects requests that try to set that header themselves (403, error 1000).
+
+How these were chosen (Nov 23, 2026, with `WAVE_DEBUG_CLIENT_IP=1`): the peer was always `127.0.0.1`; `CF-Connecting-IP` and `True-Client-IP` always held the real client IP, even when a fake was sent; `X-Forwarded-For` kept client-sent entries on the left. Leave `WAVE_DEBUG_CLIENT_IP` unset in normal use.
+
+Check after every deploy (the fake header must not change the answer):
+```bash
+curl https://wave-fkn3.onrender.com/v1/health
+curl https://wave-fkn3.onrender.com/v1/exit-path
+curl -H "X-Forwarded-For: 8.8.8.8" https://wave-fkn3.onrender.com/v1/exit-path
+```
+- **No registry is served yet** (no `WAVE_REGISTRY_FILE`): `/v1/registry` answers 503 and phones keep their built-in copy. To serve the signed campus registry later, **upload** (don't paste: the signature covers the exact bytes) `registry.json` and `registry.json.sig` as Render **Secret Files**, set `WAVE_REGISTRY_FILE=/etc/secrets/registry.json`, and deploy. Never upload the home test registry: its BSSIDs can reveal where you live.
+- **Free instance sleeps** after 15 minutes without traffic; the first request then takes up to about a minute. Open `/v1/health` a minute before a demo. The app's registry check at start also wakes it.
+- **ASN data** is downloaded on every build. Redeploy (Manual Deploy) about once a week to refresh it.
+
 **Settings** (environment variables)
 | Variable | Default | Meaning |
 |---|---|---|
@@ -130,9 +157,11 @@ Keep `--host 127.0.0.1`: in `cloudflare` mode the header is trusted only from th
 | `WAVE_ASN_DB` | `server/data/ip2asn-combined.tsv.gz` | IPtoASN dataset |
 | `WAVE_TRUSTED_PROXY` | `none` | How the phone's address is found. `none`: the connection's address only, all forwarding headers ignored. `cloudflare`: `CF-Connecting-IP`, only from loopback (cloudflared on the same machine). `forwarded`: right-most `X-Forwarded-For`, only from `WAVE_TRUSTED_PROXY_IPS`. |
 | `WAVE_TRUSTED_PROXY_IPS` | (empty) | Comma-separated proxy addresses, for `forwarded` |
+| `WAVE_CLIENT_IP_HEADER`, `WAVE_TRUSTED_PROXY_CIDRS`, `WAVE_CLIENT_IP_FROM_RIGHT` | (empty), (empty), `1` | For `WAVE_TRUSTED_PROXY=header` (hosts whose proxy has no fixed address): the one header to believe, only from peers in these ranges, entry N counted from the right |
+| `WAVE_DEBUG_CLIENT_IP` | off | `1` adds `GET /v1/debug/client-ip`, which shows the forwarding headers a host sends. Only while setting up a host |
 
 **Privacy:** the server never logs or stores client IPs itself. Uvicorn's console access log does print them; turn it off with `--no-access-log`.
 
-**Not part of the server:** the Android app's exit-path client (sending the request over the Wi-Fi network and comparing `asn` with the registry's `campus_asns`) comes next.
+**The app side:** the Android app sends `/v1/exit-path` over the Wi-Fi network (never mobile data) and compares `asn` with the registry's `campus_asns`; it downloads `/v1/registry` on start and on Refresh. Its default server address is `wave.serverUrl` in the project's `gradle.properties`.
 
 Third-party code: `cryptography` (Apache-2.0/BSD), `qrcode` (BSD), `Pillow` (MIT-CMU), `pytest` (MIT); server: `fastapi` (MIT; with `starlette` BSD-3-Clause and `pydantic` MIT), `uvicorn[standard]` (BSD-3-Clause), `httpx` (BSD-3-Clause, tests only). Data: IPtoASN (PDDL).
