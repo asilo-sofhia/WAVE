@@ -7,6 +7,9 @@ request came from a proxy we trust (WAVE_TRUSTED_PROXY):
 - "cloudflare": CF-Connecting-IP, but ONLY when the peer is loopback (cloudflared runs on this machine).
 - "forwarded": the right-most X-Forwarded-For entry (the one our proxy added), ONLY when the peer is in
   WAVE_TRUSTED_PROXY_IPS. Left-hand entries are client-supplied and never used.
+- "header": for hosts like Render, whose proxy has no fixed address. The one header WAVE_CLIENT_IP_HEADER,
+  entry WAVE_CLIENT_IP_FROM_RIGHT counted from the right, ONLY when the peer is inside WAVE_TRUSTED_PROXY_CIDRS.
+  Which header and which entry are chosen by observing the host (see backend/README.md), not guessed.
 
 When a trusted proxy doesn't say who the client is, the answer is "unknown" - never the proxy's own address,
 which would report the proxy's provider instead of the phone's.
@@ -57,6 +60,14 @@ def resolve(request: Request, settings: Settings) -> ClientAddress:
     if settings.trusted_proxy == "forwarded" and str(peer) in settings.trusted_proxy_ips:
         entries = [e for value in request.headers.getlist("x-forwarded-for") for e in value.split(",")]
         forwarded = parse_ip(entries[-1]) if entries else None  # right-most = added by our proxy
+        if forwarded is None:
+            return ClientAddress(None, "The proxy didn't say which address the request came from.")
+        return ClientAddress(forwarded)
+
+    if settings.trusted_proxy == "header" and any(peer in net for net in settings.trusted_proxy_cidrs):
+        entries = [e.strip() for value in request.headers.getlist(settings.client_ip_header) for e in value.split(",")]
+        n = settings.client_ip_from_right
+        forwarded = parse_ip(entries[-n]) if len(entries) >= n else None
         if forwarded is None:
             return ClientAddress(None, "The proxy didn't say which address the request came from.")
         return ClientAddress(forwarded)
