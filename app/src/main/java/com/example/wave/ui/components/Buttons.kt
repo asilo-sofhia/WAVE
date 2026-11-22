@@ -85,9 +85,11 @@ fun SecondaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     @DrawableRes icon: Int? = null,
+    enabled: Boolean = true,
 ) {
     OutlinedButton(
         onClick = onClick,
+        enabled = enabled,
         shape = WaveShapes.pill,
         border = BorderStroke(1.5.dp, Divider),
         colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = Blue700),

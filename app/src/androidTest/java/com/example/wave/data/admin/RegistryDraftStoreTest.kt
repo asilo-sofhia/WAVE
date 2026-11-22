@@ -41,10 +41,26 @@ class RegistryDraftStoreTest {
     )
 
     @Test
-    fun firstLoadSeedsFromTheCurrentRegistryAndSavesIt() = runBlocking {
+    fun firstLoadStartsEmptyAtTheCurrentVersionAndSavesIt() = runBlocking {
         val d = RegistryDraftStore(file).load(current = v1)
-        assertEquals(RegistryDraft.from(v1), d)
-        assertEquals(d, RegistryDraftStore(file).load(current = null)) // read back from the file, not re-seeded
+        assertEquals(RegistryDraft.empty(1), d)
+        assertEquals(d, RegistryDraftStore(file).load(current = null)) // read back from the file
+    }
+
+    @Test
+    fun entriesCopiedFromARegistryByOlderVersionsAreDropped() = runBlocking {
+        val old = RegistryDraft(
+            baseVersion = 1,
+            campusAsns = emptyList(),
+            approved = listOf(
+                DraftAp("00:1a:2b:00:00:01", "BATSTATEU-ICT", SecurityType.WPA2_PERSONAL, WifiBand.GHZ_5, 36, "Library", -80, -30, DraftSource.FROM_REGISTRY),
+                DraftAp("00:1a:2b:00:00:99", "BATSTATEU-ICT", SecurityType.WPA2_PERSONAL, WifiBand.GHZ_2_4, 6, "Gym", -85, -30, DraftSource.SURVEYED),
+            ),
+            blocked = emptyList(),
+        )
+        dir.mkdirs()
+        file.writeText(RegistryDraftStore.encode(old))
+        assertEquals(listOf("00:1a:2b:00:00:99"), RegistryDraftStore(file).load(current = null).approved.map { it.bssid })
     }
 
     @Test
@@ -57,21 +73,21 @@ class RegistryDraftStoreTest {
         }
         val reloaded = RegistryDraftStore(file).load(current = null)
         assertEquals(store.draft.value, reloaded)
-        assertEquals(2, reloaded.approved.size)
+        assertEquals(1, reloaded.approved.size)
     }
 
     @Test
-    fun resetStartsOverFromTheGivenRegistry() = runBlocking {
+    fun clearEmptiesTheList() = runBlocking {
         val store = RegistryDraftStore(file)
         store.load(current = v1)
-        store.update { it.remove("00:1a:2b:00:00:01") }
-        store.reset(current = v1)
-        assertEquals(RegistryDraft.from(v1), RegistryDraftStore(file).load(current = null))
+        store.update { it.block("6a:3f:00:11:22:9c", "x", "r") }
+        store.clear(current = v1)
+        assertEquals(RegistryDraft.empty(1), RegistryDraftStore(file).load(current = null))
     }
 
     @Test
     fun exportedJsonParsesBackToTheSameRegistry() {
-        val exported = RegistryDraft.from(v1)
+        val exported = RegistryDraft.empty(1)
             .approve(listOf(DraftAp("00:1a:2b:00:00:99", "BATSTATEU-ICT", SecurityType.WPA2_PERSONAL, WifiBand.GHZ_2_4, 6, "Gym", -85, -30, DraftSource.SURVEYED)))
             .toRegistry(Instant.parse("2026-11-23T08:00:00Z"))
         assertEquals(exported, RegistryJson.parse(RegistryJsonWriter.write(exported).toByteArray(Charsets.UTF_8)))

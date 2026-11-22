@@ -88,7 +88,7 @@ fun WaveNavHost(
         composable(Routes.ADMIN_ACCESS) {
             AdminAccessScreen(
                 onBack = { nav.popBackStack() },
-                // The access page is replaced by the survey, so Back from the survey returns to Network tools.
+                // The access page is replaced by Manage registry, so Back from it returns to Network tools.
                 onContinue = {
                     nav.navigate(Routes.SURVEY) { popUpTo(Routes.NETWORK_TOOLS) }
                 },

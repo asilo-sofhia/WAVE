@@ -17,6 +17,7 @@ object Routes {
     const val NETWORK_TOOLS = "networktools"
     const val RADAR = "radar"
     const val ADMIN_ACCESS = "adminaccess"
+    /** Manage registry: the campus admin's radar (after the admin gate). */
     const val SURVEY = "survey"
 
     const val ARG_BSSID = "bssid"

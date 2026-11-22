@@ -17,8 +17,8 @@ import java.io.File
 import java.io.IOException
 
 /**
- * The admin's draft, saved on this phone (app storage, never shared) so it survives restarts.
- * The first time, it starts from the registry the phone currently trusts.
+ * The admin's approved/blocked list, saved on this phone (app storage, never shared) so it survives restarts.
+ * It starts empty: only what the admin approves or blocks on the radar goes in.
  */
 class RegistryDraftStore(private val file: File) {
 
@@ -28,11 +28,17 @@ class RegistryDraftStore(private val file: File) {
 
     private val lock = Mutex()
 
-    /** The saved draft, or (first time) a new one that starts from [current]. */
+    /**
+     * The saved list, or (first time) an empty one. [current] is the registry this phone trusts: publishing must
+     * use a higher version than it. Entries copied from a registry by older versions of this screen are dropped.
+     */
     suspend fun load(current: Registry?): RegistryDraft = lock.withLock {
         _draft.value?.let { return@withLock it }
-        val loaded = withContext(Dispatchers.IO) { if (file.exists()) decode(file.readText()) else null }
-            ?: RegistryDraft.from(current).also { save(it) }
+        val saved = withContext(Dispatchers.IO) { if (file.exists()) decode(file.readText()) else null }
+        val version = maxOf(saved?.baseVersion ?: 0, current?.version ?: 0)
+        val loaded = saved?.copy(baseVersion = version, approved = saved.approved.filter { it.source == DraftSource.SURVEYED })
+            ?: RegistryDraft.empty(version)
+        if (loaded != saved) save(loaded)
         _draft.value = loaded
         loaded
     }
@@ -45,9 +51,9 @@ class RegistryDraftStore(private val file: File) {
         _draft.value = next
     }
 
-    /** Throws the draft away and starts again from [current] (e.g. after a newer signed registry arrived). */
-    suspend fun reset(current: Registry?) = lock.withLock {
-        val fresh = RegistryDraft.from(current)
+    /** Empties the list (approved, blocked and campus provider). */
+    suspend fun clear(current: Registry?) = lock.withLock {
+        val fresh = RegistryDraft.empty(maxOf(_draft.value?.baseVersion ?: 0, current?.version ?: 0))
         save(fresh)
         _draft.value = fresh
     }

@@ -30,7 +30,7 @@ import com.example.wave.ui.theme.WAVETheme
 
 /**
  * "Manage registry" gate. There are no accounts in WAVE (out of scope), so this prototype only simulates the
- * campus admin check: "Continue as demo admin" opens the network survey.
+ * campus admin check: "Continue as admin" opens Manage registry (the admin's radar).
  */
 @Composable
 fun AdminAccessScreen(onBack: () -> Unit, onContinue: () -> Unit, modifier: Modifier = Modifier) {
@@ -56,7 +56,7 @@ fun AdminAccessScreen(onBack: () -> Unit, onContinue: () -> Unit, modifier: Modi
             )
             Spacer(Modifier.height(Spacing.s))
             Text(
-                "Continue as demo admin",
+                "Continue as admin",
                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold, textDecoration = TextDecoration.Underline),
                 color = Blue700,
                 modifier = Modifier

@@ -12,7 +12,10 @@ import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
-/** Where an approved access point came from: the signed registry the draft started from, or this admin's survey. */
+/**
+ * Where an approved access point came from. Only SURVEYED is made now (everything comes from the admin's radar);
+ * FROM_REGISTRY is only read from older saved drafts, which are cleaned up on load.
+ */
 enum class DraftSource { FROM_REGISTRY, SURVEYED }
 
 /** One approved access point (one radio), in the draft. */
@@ -29,12 +32,12 @@ data class DraftAp(
 )
 
 /**
- * The campus admin's working list: what to approve and what to block in the next signed registry.
- * It starts from the current registry, so exporting never drops access points that are already registered.
- * The phone only ever makes an unsigned draft; it is signed on the laptop with the campus key.
+ * The campus admin's list: what was approved and what was blocked on the admin radar. It starts empty and holds
+ * only what the admin decided while scanning. Publishing it means saving it as an (unsigned) registry.json, which is
+ * signed on the laptop with the campus key; the phone never holds that key.
  */
 data class RegistryDraft(
-    /** Version of the registry it started from (0 = none). The export is this + 1. */
+    /** Version of the registry this phone had when the list was started (0 = none). Publishing uses this + 1. */
     val baseVersion: Int,
     val campusAsns: List<CampusAsn>,
     val approved: List<DraftAp>,
@@ -98,15 +101,8 @@ data class RegistryDraft(
         const val CAMPUS_KEY_ID = "wave-2026-a"
         val VALID_FOR: Duration = Duration.ofDays(180)
 
-        /** A draft that starts from [registry] (or empty when there is none yet). */
-        fun from(registry: Registry?): RegistryDraft = RegistryDraft(
-            baseVersion = registry?.version ?: 0,
-            campusAsns = registry?.campusAsns.orEmpty(),
-            approved = registry?.networks.orEmpty().flatMap { n ->
-                n.aps.map { DraftAp(it.bssid, n.ssid, n.security, it.band, it.channel, it.building, it.rssiMin, it.rssiMax, DraftSource.FROM_REGISTRY) }
-            },
-            blocked = registry?.blocked.orEmpty(),
-        )
+        /** An empty list; publishing it later gives version [baseVersion] + 1. */
+        fun empty(baseVersion: Int): RegistryDraft = RegistryDraft(baseVersion, emptyList(), emptyList(), emptyList())
     }
 }
 

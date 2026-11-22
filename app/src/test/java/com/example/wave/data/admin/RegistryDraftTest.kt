@@ -2,9 +2,6 @@ package com.example.wave.data.admin
 
 import com.example.wave.model.BlockedAp
 import com.example.wave.model.CampusAsn
-import com.example.wave.model.Registry
-import com.example.wave.model.RegistryAp
-import com.example.wave.model.RegistryNetwork
 import com.example.wave.model.SecurityType
 import com.example.wave.model.WifiBand
 import org.junit.Assert.assertEquals
@@ -18,17 +15,11 @@ class RegistryDraftTest {
 
     private val now = Instant.parse("2026-11-23T08:00:00Z")
 
-    /** v1: the library access point, one blocked rogue, the placeholder ASN. */
-    private val v1 = Registry(
-        schema = "wave-registry/1", version = 1, keyId = "wave-2026-a",
-        issuedAt = Instant.parse("2026-11-10T00:00:00Z"), expiresAt = Instant.parse("2027-01-10T00:00:00Z"),
+    /** A list made on the radar while the phone had registry v1: the library radio approved, one rogue blocked. */
+    private val v1 = RegistryDraft(
+        baseVersion = 1,
         campusAsns = listOf(CampusAsn(0, "TBD")),
-        networks = listOf(
-            RegistryNetwork(
-                "BATSTATEU-ICT", SecurityType.WPA2_PERSONAL,
-                listOf(RegistryAp("00:1a:2b:00:00:01", WifiBand.GHZ_5, 36, "Library", -80, -30)),
-            ),
-        ),
+        approved = listOf(DraftAp("00:1a:2b:00:00:01", "BATSTATEU-ICT", SecurityType.WPA2_PERSONAL, WifiBand.GHZ_5, 36, "Library", -80, -30, DraftSource.SURVEYED)),
         blocked = listOf(BlockedAp("6a:3f:00:11:22:9c", "BSU Free WiFi", "Rogue hotspot")),
     )
 
@@ -40,19 +31,15 @@ class RegistryDraftTest {
     ) = DraftAp(bssid, ssid, security, WifiBand.GHZ_2_4, 6, building, -85, -30, DraftSource.SURVEYED)
 
     @Test
-    fun seedsFromCurrentRegistry() {
-        val d = RegistryDraft.from(v1)
-        assertEquals(1, d.baseVersion)
-        assertEquals(listOf("00:1a:2b:00:00:01"), d.approved.map { it.bssid })
-        assertEquals(DraftSource.FROM_REGISTRY, d.approved.single().source)
-        assertEquals("Library", d.approved.single().building)
-        assertEquals(listOf("6a:3f:00:11:22:9c"), d.blocked.map { it.bssid })
-        assertEquals(listOf(CampusAsn(0, "TBD")), d.campusAsns)
+    fun emptyListStartsAtTheGivenVersion() {
+        val d = RegistryDraft.empty(3)
+        assertEquals(3, d.baseVersion)
+        assertTrue(d.approved.isEmpty() && d.blocked.isEmpty() && d.campusAsns.isEmpty())
     }
 
     @Test
-    fun exportKeepsSeededAps() {
-        val r = RegistryDraft.from(v1).approve(listOf(surveyed("00:1a:2b:00:00:99"))).toRegistry(now)
+    fun publishKeepsEverythingApprovedAndBlocked() {
+        val r = v1.approve(listOf(surveyed("00:1a:2b:00:00:99"))).toRegistry(now)
         assertEquals(2, r.version)
         assertEquals(setOf("00:1a:2b:00:00:01", "00:1a:2b:00:00:99"), r.networks.flatMap { it.aps }.map { it.bssid }.toSet())
         assertEquals(listOf("6a:3f:00:11:22:9c"), r.blocked.map { it.bssid })
@@ -60,35 +47,34 @@ class RegistryDraftTest {
 
     @Test
     fun approveRemovesFromBlocked() {
-        val d = RegistryDraft.from(v1).approve(listOf(surveyed("6a:3f:00:11:22:9c")))
+        val d = v1.approve(listOf(surveyed("6a:3f:00:11:22:9c")))
         assertTrue(d.blocked.isEmpty())
         assertTrue(d.approved.any { it.bssid == "6a:3f:00:11:22:9c" })
     }
 
     @Test
     fun blockRemovesFromApproved() {
-        val d = RegistryDraft.from(v1).block("00:1a:2b:00:00:01", "BATSTATEU-ICT", "Not ours")
+        val d = v1.block("00:1a:2b:00:00:01", "BATSTATEU-ICT", "Not ours")
         assertTrue(d.approved.isEmpty())
         assertEquals(BlockedAp("00:1a:2b:00:00:01", "BATSTATEU-ICT", "Not ours"), d.blocked.last())
     }
 
     @Test
     fun approveSameBssidReplaces() {
-        val d = RegistryDraft.from(v1).approve(listOf(surveyed("00:1a:2b:00:00:01", building = "Library 2F")))
+        val d = v1.approve(listOf(surveyed("00:1a:2b:00:00:01", building = "Library 2F")))
         assertEquals(1, d.approved.size)
         assertEquals("Library 2F", d.approved.single().building)
-        assertEquals(DraftSource.SURVEYED, d.approved.single().source)
     }
 
     @Test
     fun removeDeletesFromEitherList() {
-        val d = RegistryDraft.from(v1).remove("00:1a:2b:00:00:01").remove("6a:3f:00:11:22:9c")
+        val d = v1.remove("00:1a:2b:00:00:01").remove("6a:3f:00:11:22:9c")
         assertTrue(d.approved.isEmpty() && d.blocked.isEmpty())
     }
 
     @Test
     fun groupsNetworksBySsidAndSecurity() {
-        val r = RegistryDraft.from(null).approve(
+        val r = RegistryDraft.empty(0).approve(
             listOf(
                 surveyed("00:00:00:00:00:02", ssid = "B-NET"),
                 surveyed("00:00:00:00:00:01", ssid = "A-NET"),
@@ -104,7 +90,7 @@ class RegistryDraftTest {
 
     @Test
     fun noRegistryStartsAtVersion1() {
-        val r = RegistryDraft.from(null).approve(listOf(surveyed("00:00:00:00:00:01"))).toRegistry(now)
+        val r = RegistryDraft.empty(0).approve(listOf(surveyed("00:00:00:00:00:01"))).toRegistry(now)
         assertEquals(1, r.version)
         assertEquals("wave-registry/1", r.schema)
         assertEquals("wave-2026-a", r.keyId)
@@ -112,14 +98,14 @@ class RegistryDraftTest {
 
     @Test
     fun expiryIs180Days() {
-        val r = RegistryDraft.from(v1).toRegistry(now)
+        val r = v1.toRegistry(now)
         assertEquals(now, r.issuedAt)
         assertEquals(now.plus(Duration.ofDays(180)), r.expiresAt)
     }
 
     @Test
     fun unsupportedSecurityCantBeApproved() {
-        val d = RegistryDraft.from(null).approve(listOf(surveyed("00:00:00:00:00:01", security = SecurityType.WEP)))
+        val d = RegistryDraft.empty(0).approve(listOf(surveyed("00:00:00:00:00:01", security = SecurityType.WEP)))
         assertTrue(d.approved.isEmpty())
     }
 
@@ -135,7 +121,7 @@ class RegistryDraftTest {
 
     @Test
     fun campusAsnReplacesPlaceholder() {
-        val d = RegistryDraft.from(v1).withCampusAsn(CampusAsn(9299, "PLDT"))
+        val d = v1.withCampusAsn(CampusAsn(9299, "PLDT"))
         assertEquals(listOf(CampusAsn(9299, "PLDT")), d.campusAsns)
         val twice = d.withCampusAsn(CampusAsn(4775, "Globe"))
         assertEquals(listOf(CampusAsn(9299, "PLDT"), CampusAsn(4775, "Globe")), twice.campusAsns)
