@@ -393,6 +393,38 @@ def test_server_has_no_write_endpoints_and_no_cors(tmp_path, asn_file):
         assert c.get("/docs").status_code == 404 and c.get("/openapi.json").status_code == 404
 
 
+# ---------------- /v1/debug/client-ip (off unless WAVE_DEBUG_CLIENT_IP=1) ----------------
+def debug_get(tmp_path, peer, headers=None, **settings):
+    with client(settings_for(tmp_path, **settings), peer=(peer, 50000)) as c:
+        return c.get("/v1/debug/client-ip", headers=headers or {})
+
+
+def test_debug_endpoint_is_off_by_default(tmp_path):
+    assert debug_get(tmp_path, "10.1.2.3").status_code == 404
+
+
+def test_debug_endpoint_shows_forwarding_headers(tmp_path):
+    r = debug_get(tmp_path, "10.1.2.3", {"X-Forwarded-For": "a, b", "True-Client-IP": DITO_IP}, debug_client_ip=True)
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    body = r.json()
+    assert body["peer"] == "10.1.2.3" and body["mode"] == "none"
+    assert body["headers"]["x-forwarded-for"] == ["a, b"]
+    assert body["headers"]["true-client-ip"] == [DITO_IP]
+    assert body["headers"]["cf-connecting-ip"] == []
+
+
+def test_debug_endpoint_reports_resolved_ip(tmp_path):
+    body = debug_get(tmp_path, "10.1.2.3", {"True-Client-IP": DITO_IP}, debug_client_ip=True, **RENDER).json()
+    assert body["resolved_ip"] == DITO_IP and body["problem"] is None and body["mode"] == "header"
+
+
+def test_debug_flag_from_env():
+    assert Settings.from_env({}).debug_client_ip is False
+    assert Settings.from_env({"WAVE_DEBUG_CLIENT_IP": "1"}).debug_client_ip is True
+    assert Settings.from_env({"WAVE_DEBUG_CLIENT_IP": "true"}).debug_client_ip is True
+    assert Settings.from_env({"WAVE_DEBUG_CLIENT_IP": "0"}).debug_client_ip is False
+
+
 # ---------------- config ----------------
 def test_invalid_proxy_settings_refuse_to_start():
     with pytest.raises(ConfigError):

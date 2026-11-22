@@ -31,6 +31,8 @@ class Settings:
     trusted_proxy_cidrs: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = ()
     #: Mode "header": which comma-separated entry to use, counted from the right (1 = right-most).
     client_ip_from_right: int = 1
+    #: Adds GET /v1/debug/client-ip, which shows the forwarding headers a host sends. Only while setting up a host.
+    debug_client_ip: bool = False
 
     def __post_init__(self) -> None:
         if self.trusted_proxy not in PROXY_MODES:
@@ -61,6 +63,8 @@ class Settings:
             kwargs["trusted_proxy"] = env["WAVE_TRUSTED_PROXY"].strip().lower()
         if env.get("WAVE_TRUSTED_PROXY_IPS"):
             kwargs["trusted_proxy_ips"] = _ip_set(env["WAVE_TRUSTED_PROXY_IPS"])
+        if env.get("WAVE_DEBUG_CLIENT_IP"):
+            kwargs["debug_client_ip"] = env["WAVE_DEBUG_CLIENT_IP"].strip().lower() in ("1", "true", "yes")
         if env.get("WAVE_CLIENT_IP_HEADER"):
             kwargs["client_ip_header"] = env["WAVE_CLIENT_IP_HEADER"].strip().lower()
         if env.get("WAVE_TRUSTED_PROXY_CIDRS"):

@@ -1,4 +1,5 @@
 """WAVE server (docs/CONTRACT.md section 4). Read-only: three GET endpoints, no database, no keys, no CORS.
+(A fourth, /v1/debug/client-ip, exists only while WAVE_DEBUG_CLIENT_IP=1, for setting up a new host.)
 
 Run from backend/:  uvicorn server.main:app --host 127.0.0.1 --port 8000
 """
@@ -91,7 +92,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return {**unknown, "public_ip": str(client.ip), "note": "No ASN found for this address."}
         return {"public_ip": str(client.ip), "asn": info.asn, "as_name": info.as_name, "checked_at": checked_at}
 
+    if settings.debug_client_ip:
+        log.warning("WAVE_DEBUG_CLIENT_IP is on: /v1/debug/client-ip shows forwarding headers. Turn it off when done.")
+
+        @app.get("/v1/debug/client-ip")
+        def debug_client_ip(request: Request, response: Response) -> dict:
+            # Only for choosing WAVE_TRUSTED_PROXY settings on a new host; it echoes the caller's own headers.
+            response.headers["Cache-Control"] = "no-store"
+            client = resolve(request, settings)
+            return {
+                "peer": request.client.host if request.client else None,
+                "resolved_ip": str(client.ip) if client.ip else None,
+                "problem": client.problem,
+                "mode": settings.trusted_proxy,
+                "headers": {name: request.headers.getlist(name) for name in DEBUG_HEADERS},
+            }
+
     return app
 
+
+#: Forwarding headers shown by /v1/debug/client-ip.
+DEBUG_HEADERS = ("x-forwarded-for", "cf-connecting-ip", "true-client-ip", "x-real-ip", "forwarded")
 
 app = create_app()
