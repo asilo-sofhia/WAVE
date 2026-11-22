@@ -37,6 +37,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -69,9 +71,9 @@ import com.example.wave.ui.theme.WarningFg
 import com.example.wave.ui.theme.WaveShapes
 
 /**
- * One network in a list, laid out exactly like the mockup 3 "Available networks" rows:
- * tinted Wi-Fi tile | bold name + verdict chip on ONE line | "security · signal" | optional note
- * | signal bars | chevron. The chip never wraps: on narrow phones a long name shrinks a little instead.
+ * One network in a list (mockup 3 "Available networks" rows, adjusted):
+ * tinted Wi-Fi tile whose arcs show the signal strength | bold name | "security · signal" | optional note
+ * | verdict chip | chevron. A long name shrinks a little instead of pushing the chip off.
  * TalkBack reads the row as one item.
  */
 @Composable
@@ -93,26 +95,18 @@ fun NetworkRow(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier
-                    .size(46.dp)
-                    .background(Brush.verticalGradient(listOf(style.bg.copy(alpha = 0.65f), style.bg)), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(painterResource(R.drawable.ic_wifi), null, tint = style.fg, modifier = Modifier.size(24.dp))
+            // No tinted tile: just the icon. The verdict colour lives on the chip at the right.
+            Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
+                // Dark brand blue (the same blue as the app's links and buttons).
+                WifiSignalIcon(network.signal, Blue700, Modifier.size(width = 28.dp, height = 24.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    FitText(
-                        network.ssid,
-                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp, fontWeight = FontWeight.ExtraBold),
-                        color = Navy900,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    Spacer(Modifier.width(7.dp))
-                    RowChip(style)
-                }
+                FitText(
+                    network.ssid,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp, fontWeight = FontWeight.ExtraBold),
+                    color = Navy900,
+                )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     "${network.security.label} · ${signalQuality(network.signal).label}",
@@ -137,7 +131,7 @@ fun NetworkRow(
                 }
             }
             Spacer(Modifier.width(Spacing.s))
-            SignalBars(network.signal, showLabel = false)
+            RowChip(style)
             Spacer(Modifier.width(4.dp))
             Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Slate600, modifier = Modifier.size(22.dp))
         }
@@ -175,6 +169,33 @@ private fun RowChip(style: StatusStyle) {
             maxLines = 1,
             softWrap = false,
         )
+    }
+}
+
+/**
+ * Wi-Fi glyph that doubles as the signal meter: a dot and three arcs, filled from the bottom up by the
+ * signal's bars (1 = dot only ... 4 = all three arcs); the rest stay faint in the same [color].
+ */
+@Composable
+fun WifiSignalIcon(dBm: Int, color: Color, modifier: Modifier = Modifier) {
+    val quality = signalQuality(dBm)
+    Canvas(modifier.clearAndSetSemantics { contentDescription = "Signal ${quality.label.lowercase()}" }) {
+        val faint = color.copy(alpha = 0.25f)
+        val stroke = size.height * 0.13f
+        val centre = Offset(size.width / 2f, size.height * 0.90f)
+        drawCircle(if (quality.bars >= 1) color else faint, radius = stroke * 0.85f, center = centre)
+        listOf(0.36f, 0.60f, 0.84f).forEachIndexed { i, f ->
+            val r = size.height * f
+            drawArc(
+                color = if (quality.bars >= i + 2) color else faint,
+                startAngle = -135f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(centre.x - r, centre.y - r),
+                size = Size(r * 2, r * 2),
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
+            )
+        }
     }
 }
 

@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +28,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -61,11 +61,9 @@ import com.example.wave.model.withExitPath
 import com.example.wave.ui.components.HeroCard
 import com.example.wave.ui.components.LogoTile
 import com.example.wave.ui.components.PrimaryButton
-import com.example.wave.ui.components.SectionHeader
 import com.example.wave.ui.components.SpeechBubble
 import com.example.wave.ui.components.StatusCard
 import com.example.wave.ui.components.StatusStyle
-import com.example.wave.ui.components.ToolRow
 import com.example.wave.ui.components.WaveBackground
 import com.example.wave.ui.components.Wavey
 import com.example.wave.ui.components.drawSparkle
@@ -169,33 +167,25 @@ fun HomeRoute(
     )
 }
 
-// ---- Screen (layout follows docs/mockups/2 - Home Page.png) ----
+// ---- Screen (layout follows docs/mockups/2 - Home Page.png; one page, never scrolls) ----
 
 @Composable
 fun HomeScreen(
     state: HomeUiState,
     onCheckWifi: () -> Unit,
     onDisconnectNow: () -> Unit,
-    onOpenTab: (Tab) -> Unit,
+    /** Kept for the route; the tools list that used it was removed (the bottom bar has the same tabs). */
+    @Suppress("UNUSED_PARAMETER") onOpenTab: (Tab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(start = 16.dp, end = 16.dp, bottom = Spacing.m),
     ) {
         HomeHeader(Modifier.padding(top = Spacing.s, bottom = Spacing.l))
-        HomeHero(state, onCheckWifi, onDisconnectNow)
-        Spacer(Modifier.height(Spacing.xl))
-        SectionHeader("Security tools", trailing = "3 tools")
-        Spacer(Modifier.height(Spacing.s))
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-            ToolRow(R.drawable.ic_wifi, "Nearby Networks", { onOpenTab(Tab.NETWORKS) }, subtitle = "Find and verify available networks.")
-            ToolRow(R.drawable.ic_qr, "Scan Wi-Fi QR", { onOpenTab(Tab.SCAN_QR) }, subtitle = "Check a QR code before you join.")
-            ToolRow(R.drawable.ic_monitor_heart, "Connection Monitor", { onOpenTab(Tab.MONITOR) }, subtitle = "Watch the network you're on.")
-        }
-        Spacer(Modifier.height(Spacing.xl))
+        // The hero takes the rest of the page; Wavey grows into it.
+        HomeHero(state, onCheckWifi, onDisconnectNow, Modifier.weight(1f))
     }
 }
 
@@ -229,32 +219,44 @@ private fun greeting(): String {
 }
 
 @Composable
-private fun HomeHero(state: HomeUiState, onCheckWifi: () -> Unit, onDisconnectNow: () -> Unit) {
-    HeroCard(Modifier.fillMaxWidth()) {
-        // Stage: name chip + speech bubble on the left, Wavey on a pedestal on the right.
-        BoxWithConstraints(Modifier.fillMaxWidth().height(212.dp)) {
-            val waveySize = minOf(maxWidth * 0.52f, 190.dp)
+private fun HomeHero(state: HomeUiState, onCheckWifi: () -> Unit, onDisconnectNow: () -> Unit, modifier: Modifier = Modifier) {
+    HeroCard(modifier.fillMaxWidth()) {
+        // Stage (mockup): name chip + speech bubble at the top left, Wi-Fi waves at the top right, then a big
+        // Wavey centred on the pedestal right under the bubble. Wavey takes all the height left, so there's
+        // no empty band above it.
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             HeroBackdrop(Modifier.matchParentSize())
-            Column(Modifier.align(Alignment.TopStart).fillMaxWidth(0.54f)) {
-                WaveyChip()
-                Spacer(Modifier.height(Spacing.s))
-                val (title, body) = bubbleText(state)
-                SpeechBubble(
-                    title = title,
-                    body = body,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            Box(Modifier.align(Alignment.TopStart)) { WaveyChip() }
+            // Bubble, Wi-Fi waves and Wavey stay together at the bottom of the stage (on the pedestal); any extra
+            // height goes above them, under the chip. The image has transparent margins, so Wavey may be as wide
+            // as the card. 150dp leaves room for the chip and the bubble.
+            val waveySize = minOf(maxWidth * 1.05f, maxHeight - 150.dp).coerceAtLeast(120.dp)
+            val wavesEndPadding = maxWidth * 0.03f
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                // Pushed down into the empty top margin of Wavey's image, so its tail sits just above the fin.
+                Box(Modifier.fillMaxWidth().offset(y = waveySize * 0.08f)) {
+                    val (title, body) = bubbleText(state)
+                    SpeechBubble(
+                        title = title,
+                        body = body,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .fillMaxWidth(0.62f)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    WifiWaves(Modifier.align(Alignment.BottomEnd).padding(end = wavesEndPadding).size(112.dp))
+                }
+                Wavey(
+                    mood = state.mood,
+                    size = waveySize,
+                    blink = true,
+                    modifier = Modifier.offset(y = 6.dp),
                 )
             }
-            Wavey(
-                mood = state.mood,
-                size = waveySize,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x = 2.dp, y = 2.dp),
-            )
         }
+        // Clear gap between the pedestal and the cards.
         Row(
-            Modifier.fillMaxWidth().padding(top = Spacing.s),
+            Modifier.fillMaxWidth().padding(top = Spacing.l),
             horizontalArrangement = Arrangement.spacedBy(Spacing.m),
         ) {
             StatusCard(
@@ -262,6 +264,7 @@ private fun HomeHero(state: HomeUiState, onCheckWifi: () -> Unit, onDisconnectNo
                 label = "Wi-Fi SSID",
                 value = state.ssid ?: "Not connected",
                 modifier = Modifier.weight(1f),
+                large = true,
             )
             StatusCard(
                 icon = R.drawable.ic_shield_outline,
@@ -269,6 +272,7 @@ private fun HomeHero(state: HomeUiState, onCheckWifi: () -> Unit, onDisconnectNo
                 value = healthLabel(state),
                 style = healthStyle(state),
                 modifier = Modifier.weight(1f),
+                large = true,
             )
         }
         Spacer(Modifier.height(Spacing.l))
@@ -278,7 +282,6 @@ private fun HomeHero(state: HomeUiState, onCheckWifi: () -> Unit, onDisconnectNo
             PrimaryButton(
                 "Check Wi-Fi",
                 onClick = onCheckWifi,
-                icon = R.drawable.ic_scan_frame,
                 loading = state.check == HomeCheck.Checking,
                 enabled = state.ssid != null,
                 gradient = CheckWifiGradient,
@@ -351,13 +354,27 @@ private fun HeroBackdrop(modifier: Modifier) {
         )
 
         // Sparkles and bubbles around Wavey.
-        drawSparkle(Offset(w * 0.55f, h * 0.36f), 11.dp.toPx(), Color(0xFF0EA2FF), glow = Color(0x553FB8FF))
-        drawSparkle(Offset(w * 0.96f, h * 0.36f), 10.dp.toPx(), Color.White, glow = Color(0x40FFFFFF))
-        drawSparkle(Offset(w * 0.60f, h * 0.12f), 3.dp.toPx(), Color.White)
+        drawSparkle(Offset(w * 0.20f, h * 0.44f), 11.dp.toPx(), Color(0xFF0EA2FF), glow = Color(0x553FB8FF))
+        drawSparkle(Offset(w * 0.92f, h * 0.40f), 10.dp.toPx(), Color.White, glow = Color(0x40FFFFFF))
         drawSparkle(Offset(w * 0.95f, h * 0.10f), 3.dp.toPx(), Color.White)
-        drawSparkle(Offset(w * 0.03f, h * 0.72f), 3.dp.toPx(), Color.White)
-        drawCircle(Color(0xFF19C3F5), 2.5.dp.toPx(), Offset(w * 0.55f, h * 0.62f))
-        drawCircle(Color.White, 2.dp.toPx(), Offset(w * 0.98f, h * 0.55f))
+        drawSparkle(Offset(w * 0.05f, h * 0.72f), 3.dp.toPx(), Color.White)
+        drawCircle(Color(0xFF19C3F5), 2.5.dp.toPx(), Offset(w * 0.12f, h * 0.60f))
+        drawCircle(Color.White, 2.dp.toPx(), Offset(w * 0.96f, h * 0.62f))
+    }
+}
+
+/** Three glowing Wi-Fi waves opening up and to the right (mockup), drawn beside the speech bubble. */
+@Composable
+private fun WifiWaves(modifier: Modifier) {
+    Canvas(modifier.clearAndSetSemantics {}) {
+        val centre = Offset(size.width * 0.12f, size.height * 0.92f)
+        listOf(34.dp, 58.dp, 82.dp).forEach { r ->
+            val radius = r.toPx()
+            val topLeft = Offset(centre.x - radius, centre.y - radius)
+            val arcSize = Size(radius * 2, radius * 2)
+            drawArc(Color(0x6633C8FF), -80f, 62f, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Round))
+            drawArc(Color.White.copy(alpha = 0.92f), -80f, 62f, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round))
+        }
     }
 }
 

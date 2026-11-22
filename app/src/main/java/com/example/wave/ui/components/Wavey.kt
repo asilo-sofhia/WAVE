@@ -9,8 +9,10 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,7 +30,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -63,6 +71,8 @@ fun Wavey(
     modifier: Modifier = Modifier,
     size: Dp = 160.dp,
     animate: Boolean = true,
+    /** Blink every few seconds (still art with open eyes only: NORMAL, CURIOUS, UNCOMFORTABLE). */
+    blink: Boolean = false,
 ) {
     val description = waveyDescription(mood)
     val play = animate && motionAllowed()
@@ -111,6 +121,8 @@ fun Wavey(
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
             )
+            // HAPPY's eyes are already closed curves, so only the open-eyed base image blinks.
+            if (blink && play && mood != WaveyMood.HAPPY) Blink(Modifier.fillMaxSize())
         }
         placeholderBadge(mood)?.let { (icon, colors) ->
             Box(
@@ -177,6 +189,57 @@ private fun AnimatedArt(@DrawableRes res: Int, play: Boolean, modifier: Modifier
         update = { it.setImageDrawable(drawable) },
         modifier = modifier,
     )
+}
+
+/**
+ * One eye of wavey_normal.webp as fractions of the image (measured from the 512 px art): centre, radii, and
+ * the face colour just above and below it, so the closed lid blends in.
+ */
+private class Eye(val cx: Float, val cy: Float, val rx: Float, val ry: Float, val top: Color, val bottom: Color)
+
+private val NormalEyes = listOf(
+    Eye(0.362f, 0.503f, 0.048f, 0.038f, Color(0xFFABE8FB), Color(0xFFF8F9FB)),
+    Eye(0.641f, 0.502f, 0.049f, 0.037f, Color(0xFF81D9FB), Color(0xFFEAF2FB)),
+)
+private val LashColor = Color(0xFF141B3A)
+
+/** Closes Wavey's eyes for ~0.2 s every 4 s: a face-coloured lid over each eye plus a curved lash line. */
+@Composable
+private fun Blink(modifier: Modifier) {
+    val closed = rememberInfiniteTransition(label = "wavey-blink").animateFloat(
+        initialValue = 0f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            keyframes {
+                durationMillis = 4000
+                0f at 3400
+                1f at 3470
+                1f at 3550
+                0f at 3630
+            },
+        ),
+        label = "wavey-lid",
+    )
+    // The value is read only while drawing, so a blink redraws this layer without recomposing.
+    Canvas(modifier) {
+        val alpha = closed.value
+        if (alpha <= 0f) return@Canvas
+        val w = size.width
+        val h = size.height
+        NormalEyes.forEach { e ->
+            drawOval(
+                Brush.verticalGradient(listOf(e.top, e.bottom), startY = (e.cy - e.ry) * h, endY = (e.cy + e.ry) * h),
+                topLeft = Offset((e.cx - e.rx) * w, (e.cy - e.ry) * h),
+                size = Size(e.rx * 2 * w, e.ry * 2 * h),
+                alpha = alpha,
+            )
+            val lash = Path().apply {
+                moveTo((e.cx - e.rx * 0.85f) * w, (e.cy + 0.002f) * h)
+                quadraticTo(e.cx * w, (e.cy + e.ry * 0.75f) * h, (e.cx + e.rx * 0.85f) * w, (e.cy + 0.002f) * h)
+            }
+            drawPath(lash, LashColor, alpha = alpha, style = Stroke(width = w * 0.014f, cap = StrokeCap.Round))
+        }
+    }
 }
 
 @Composable
