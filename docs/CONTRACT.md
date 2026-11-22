@@ -158,7 +158,7 @@ Delivered in one response so the file and signature can never be mismatched. The
 ```
 Header `Cache-Control: no-store`. **The app must send this request over the Wi-Fi `Network` object** (`network.socketFactory` / `network.openConnection()`), or Android may route it over mobile data.
 
-App logic: `asn` in registry `campus_asns` → OK; otherwise → Warning. Request fails 3 times in 30 s → "Unverified – don't enter passwords".
+App logic: the check runs only on networks the registry already marks **Verified** (an unregistered network never exits through campus, so a mismatch there says nothing). `asn` in registry `campus_asns` → OK; otherwise → Warning. No usable answer (error, timeout, or `asn` null) 3 times in 30 s → **Server unreachable** – "don't enter passwords yet". The verdict stays as it is.
 
 ### `GET /v1/health`
 `{ "status": "ok" }`

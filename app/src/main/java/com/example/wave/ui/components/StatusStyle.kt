@@ -33,7 +33,7 @@ fun ExitPathStatus.style(): StatusStyle = when (this) {
     ExitPathStatus.PENDING -> StatusStyle(UnknownFg, UnknownBg, R.drawable.ic_schedule, "Pending")
     ExitPathStatus.PASSED -> StatusStyle(VerifiedFg, VerifiedBg, R.drawable.ic_check, "Passed")
     ExitPathStatus.FAILED -> StatusStyle(WarningFg, WarningBg, R.drawable.ic_warning, "Failed")
-    ExitPathStatus.UNREACHABLE -> StatusStyle(UnknownFg, UnknownBg, R.drawable.ic_help, "Server unreachable")
+    ExitPathStatus.UNREACHABLE -> StatusStyle(UnknownFg, UnknownBg, R.drawable.ic_help, "Unreachable")
 }
 
 fun CheckOutcome.style(): StatusStyle = when (this) {
