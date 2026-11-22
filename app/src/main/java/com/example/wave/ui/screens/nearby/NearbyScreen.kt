@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.example.wave.R
 import com.example.wave.data.LocationPermissionGate
+import com.example.wave.data.RegistryRepository
 import com.example.wave.data.ScanRepository
 import com.example.wave.data.fake.FakeFixtures
 import com.example.wave.di.AppContainer
@@ -101,6 +102,7 @@ sealed interface NearbyUiState {
 class NearbyViewModel(
     private val repo: ScanRepository,
     permission: LocationPermissionGate,
+    private val registry: RegistryRepository? = null,
 ) : ViewModel() {
     private val scan = MutableStateFlow<ScanResult?>(null)
     private var job: Job? = null
@@ -126,6 +128,8 @@ class NearbyViewModel(
             scan.value = null
             scan.value = repo.scanNearby()
         }
+        // Also ask the server for a newer registry (at most once a minute); the list re-judges itself when it lands.
+        registry?.let { viewModelScope.launch { it.refresh() } }
     }
 }
 
@@ -179,7 +183,7 @@ fun NearbyRoute(
     onOpenNetwork: (bssid: String) -> Unit,
     onNeedPermission: () -> Unit,
 ) {
-    val vm = waveViewModel { NearbyViewModel(container.scanRepository, container.locationPermission) }
+    val vm = waveViewModel { NearbyViewModel(container.scanRepository, container.locationPermission, container.registryRepository) }
     val state by vm.state.collectAsStateWithLifecycle()
     NearbyScreen(
         state = state,

@@ -121,7 +121,7 @@ Open http://127.0.0.1:8000/v1/health. Locally, `/v1/exit-path` only says it sees
 4. On the phone, open `<tunnel-url>/v1/exit-path`. On home Wi-Fi it should show **AS4775 Globe**; on the DITO hotspot, DITO's ASN (**AS139831**).
 Keep `--host 127.0.0.1`: in `cloudflare` mode the header is trusted only from this machine.
 
-**Point the app at the server.** In a debug build, long-press the WAVE logo to open the demo menu, paste the `https://…` address under **Exit-path server**, tap **Save**, then **Test server**. To build the app with an address already set, add `wave.serverUrl=https://…` to `%USERPROFILE%\.gradle\gradle.properties` (or to the project's `gradle.properties` once the address is permanent, e.g. on Render). Only `https://` addresses are accepted.
+**Point the app at the server.** In a debug build, long-press the WAVE logo to open the demo menu, paste the `https://…` address under **Exit-path server**, tap **Save**, then **Test server**. To build the app with an address already set, add `wave.serverUrl=https://…` to `%USERPROFILE%\.gradle\gradle.properties` (or to the project's `gradle.properties` once the address is permanent, e.g. on Render). Only `https://` addresses are accepted. The app also downloads the signed registry from the same address (`/v1/registry`) when it starts and when you tap Refresh on Networks, and keeps it only if its version is higher than the one it has; **Update registry** in the demo menu does it right away.
 
 **Settings** (environment variables)
 | Variable | Default | Meaning |

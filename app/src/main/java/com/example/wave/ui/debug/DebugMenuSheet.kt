@@ -63,6 +63,8 @@ fun DebugMenuSheet(
     onSaveServerUrl: (String) -> Boolean = { false },
     /** Asks the server once and describes the answer. Null in demo mode: the server section is hidden. */
     onTestServer: (suspend () -> String)? = null,
+    /** Downloads the registry now and describes the result. Null in demo mode. */
+    onUpdateRegistry: (suspend () -> String)? = null,
 ) {
     val scenario by store.scenario.collectAsStateWithLifecycle()
     val qrOverride by store.qrOverride.collectAsStateWithLifecycle()
@@ -175,7 +177,7 @@ fun DebugMenuSheet(
 
             if (onTestServer != null) {
                 HorizontalDivider()
-                ServerSection(serverUrl, onSaveServerUrl, onTestServer)
+                ServerSection(serverUrl, onSaveServerUrl, onTestServer, onUpdateRegistry)
             }
 
             Spacer(Modifier.heightIn(min = Spacing.s))
@@ -185,12 +187,21 @@ fun DebugMenuSheet(
     }
 }
 
-/** The exit-path server address (CONTRACT §4). Test saves the address first, then asks the server once. */
+/**
+ * The WAVE server address (CONTRACT §4). Test and Update registry save the address first, then ask the server once.
+ */
 @Composable
-private fun ServerSection(serverUrl: String?, onSave: (String) -> Boolean, onTest: suspend () -> String) {
+private fun ServerSection(
+    serverUrl: String?,
+    onSave: (String) -> Boolean,
+    onTest: suspend () -> String,
+    onUpdateRegistry: (suspend () -> String)?,
+) {
     var text by rememberSaveable { mutableStateOf(serverUrl.orEmpty()) }
     var status by remember { mutableStateOf<String?>(null) }
     var testing by remember { mutableStateOf(false) }
+    var registryStatus by remember { mutableStateOf<String?>(null) }
+    var updating by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     Label("Exit-path server")
@@ -231,6 +242,29 @@ private fun ServerSection(serverUrl: String?, onSave: (String) -> Boolean, onTes
         )
     }
     status?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Slate600) }
+    if (onUpdateRegistry != null) {
+        SecondaryButton(
+            if (updating) "Updating…" else "Update registry",
+            onClick = {
+                if (updating) return@SecondaryButton
+                if (!onSave(text)) {
+                    registryStatus = "Needs an https:// address"
+                    return@SecondaryButton
+                }
+                updating = true
+                registryStatus = "Downloading the registry…"
+                scope.launch {
+                    try {
+                        registryStatus = onUpdateRegistry()
+                    } finally {
+                        updating = false
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        registryStatus?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Slate600) }
+    }
 }
 
 @Composable
