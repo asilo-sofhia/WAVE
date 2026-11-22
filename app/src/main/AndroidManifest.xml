@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <!-- Watching the current Wi-Fi connection (ConnectivityManager.NetworkCallback). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Exit-path check (CONTRACT §4): asks the WAVE server which provider this Wi-Fi exits through. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android 13+. No neverForLocation: WAVE needs real BSSIDs to spot evil twins. -->
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
     <uses-feature android:name="android.hardware.wifi" android:required="true" />

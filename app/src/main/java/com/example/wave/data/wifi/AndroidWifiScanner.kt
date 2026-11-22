@@ -58,6 +58,9 @@ class AndroidWifiScanner(
     @Volatile private var waiter: CompletableDeferred<Boolean>? = null
     private var callback: ConnectivityManager.NetworkCallback? = null
     @Volatile private var wifiNetwork: Network? = null
+
+    /** The connected Wi-Fi network, for requests that must go over Wi-Fi (the exit-path check). Null = not on Wi-Fi. */
+    val currentNetwork: Network? get() = wifiNetwork
     @Volatile private var lastInfo: WifiInfo? = null
     @Volatile private var lastLink: LinkProperties? = null
 
