@@ -73,6 +73,7 @@ import com.example.wave.model.WarningReason
 import com.example.wave.model.WaveyMood
 import com.example.wave.model.signalQuality
 import com.example.wave.model.waveyMoodFor
+import com.example.wave.model.needsExitPathCheck
 import com.example.wave.model.withExitPath
 import com.example.wave.ui.components.FitText
 import com.example.wave.ui.components.HeroCard
@@ -115,7 +116,7 @@ sealed interface MonitorUiState {
     data object Loading : MonitorUiState
     data object NotConnected : MonitorUiState
 
-    /** [exitPath] is null when skipped because the network is already a WARNING. */
+    /** [exitPath] is null when skipped: only Verified networks get the exit-path check. */
     data class Connected(val network: NetworkUi, val exitPath: ExitPathStatus?) : MonitorUiState {
         val effective: NetworkUi get() = network.withExitPath(exitPath)
         val unsafe: Boolean get() = effective.verdict == Verdict.WARNING
@@ -129,13 +130,13 @@ sealed interface MonitorUiState {
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MonitorViewModel(repo: ScanRepository, exitPath: ExitPathChecker) : ViewModel() {
-    /** (access point the result belongs to, result). Null result = skipped (already a WARNING). */
+    /** (access point the result belongs to, result). Null result = skipped (not Verified). */
     private val exit = repo.connection
         .distinctUntilChangedBy { it?.bssid to it?.verdict }
         .flatMapLatest { network ->
             when {
                 network == null -> flowOf(null to null)
-                network.verdict == Verdict.WARNING -> flowOf(network.bssid to null)
+                !network.needsExitPathCheck() -> flowOf(network.bssid to null)
                 else -> exitPath.check(network).map { network.bssid to it }
             }
         }
@@ -143,7 +144,7 @@ class MonitorViewModel(repo: ScanRepository, exitPath: ExitPathChecker) : ViewMo
     val state: StateFlow<MonitorUiState> = combine(repo.connection, exit) { network, (checkedBssid, status) ->
         when {
             network == null -> MonitorUiState.NotConnected
-            network.verdict == Verdict.WARNING -> MonitorUiState.Connected(network, null)
+            !network.needsExitPathCheck() -> MonitorUiState.Connected(network, null)
             // A different access point than the last result: its own check has just started.
             checkedBssid != network.bssid -> MonitorUiState.Connected(network, ExitPathStatus.PENDING)
             else -> MonitorUiState.Connected(network, status)
@@ -207,7 +208,9 @@ fun MonitorScreen(
                 is MonitorUiState.Connected -> {
                     val network = state.effective
                     val registry = state.network.verdict.style()
-                    val exit = state.exitPath?.style() ?: NotCheckedStyle.copy(label = "Skipped")
+                    // Not run: "Skipped" for a Warning network, "Not needed" for an Unknown one (Verified only).
+                    val exit = state.exitPath?.style()
+                        ?: NotCheckedStyle.copy(label = if (network.verdict == Verdict.WARNING) "Skipped" else "Not needed")
                     MonitorHero(
                         mood = state.mood,
                         orbActive = true,
@@ -223,6 +226,7 @@ fun MonitorScreen(
                             state.unsafe -> "This connection is not safe."
                             network.verdict == Verdict.UNKNOWN -> "WAVE can't verify this network."
                             state.exitPath == ExitPathStatus.PASSED -> "All checks passed. You're safe."
+                            state.exitPath == ExitPathStatus.UNREACHABLE -> "WAVE's server can't be reached. Don't enter passwords yet."
                             else -> "Your connection is being analyzed."
                         },
                         // Hero and details share the page; the hero gets a bit more so Wavey stays the focus.
@@ -525,9 +529,13 @@ private fun MonitorVerifiedPreview() = PreviewOf(MonitorUiState.Connected(FakeFi
 @Composable
 private fun MonitorWarningPreview() = PreviewOf(MonitorUiState.Connected(FakeFixtures.campus, ExitPathStatus.FAILED))
 
+@Preview(showSystemUi = true, name = "Verified (server unreachable)")
+@Composable
+private fun MonitorUnreachablePreview() = PreviewOf(MonitorUiState.Connected(FakeFixtures.campus, ExitPathStatus.UNREACHABLE))
+
 @Preview(showSystemUi = true, name = "Unknown")
 @Composable
-private fun MonitorUnknownPreview() = PreviewOf(MonitorUiState.Connected(FakeFixtures.library, ExitPathStatus.PASSED))
+private fun MonitorUnknownPreview() = PreviewOf(MonitorUiState.Connected(FakeFixtures.library, null))
 
 @Preview(showSystemUi = true, name = "Loading")
 @Composable

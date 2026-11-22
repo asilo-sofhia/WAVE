@@ -1,11 +1,13 @@
 package com.example.wave
 
 import com.example.wave.data.fake.FakeFixtures
+import com.example.wave.data.fake.Scenario
 import com.example.wave.model.ExitPathStatus
 import com.example.wave.model.QrResult
 import com.example.wave.model.Verdict
 import com.example.wave.model.WarningReason
 import com.example.wave.model.WaveyMood
+import com.example.wave.model.needsExitPathCheck
 import com.example.wave.model.waveyMoodFor
 import com.example.wave.model.withExitPath
 import org.junit.Assert.assertEquals
@@ -87,5 +89,24 @@ class WaveyRulesTest {
         assertEquals(Verdict.WARNING, failed.verdict)
         assertEquals(listOf(WarningReason.EXIT_ASN_MISMATCH), failed.reasons)
         assertEquals(FakeFixtures.campus, FakeFixtures.campus.withExitPath(ExitPathStatus.PASSED))
+    }
+
+    @Test
+    fun unreachableKeepsVerdictAndMood() {
+        val n = FakeFixtures.campus // VERIFIED
+        assertEquals(n, n.withExitPath(ExitPathStatus.UNREACHABLE))
+        assertEquals(WaveyMood.NORMAL, waveyMoodFor(Verdict.VERIFIED, ExitPathStatus.UNREACHABLE, connected = true))
+    }
+
+    @Test
+    fun onlyVerifiedNetworksGetTheExitPathCheck() {
+        assertEquals(true, FakeFixtures.campus.needsExitPathCheck())
+        assertEquals(false, FakeFixtures.library.needsExitPathCheck()) // UNKNOWN
+        assertEquals(false, FakeFixtures.twin.needsExitPathCheck()) // WARNING
+    }
+
+    @Test
+    fun scenarioCoversUnreachable() {
+        assertEquals(true, Scenario.entries.any { it.exitPath == ExitPathStatus.UNREACHABLE })
     }
 }

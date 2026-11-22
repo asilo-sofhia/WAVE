@@ -59,6 +59,12 @@ fun signalQuality(dBm: Int): SignalQuality = when {
     else -> SignalQuality.WEAK
 }
 
+/**
+ * Only Verified networks get the exit-path check: an unregistered network (home, café, hotspot) never exits
+ * through the campus provider, so a FAILED there would say nothing about whether it's fake.
+ */
+fun NetworkUi.needsExitPathCheck(): Boolean = verdict == Verdict.VERIFIED
+
 /** When the exit-path check fails, the network becomes a WARNING with [WarningReason.EXIT_ASN_MISMATCH]. */
 fun NetworkUi.withExitPath(status: ExitPathStatus?): NetworkUi =
     if (status == ExitPathStatus.FAILED && WarningReason.EXIT_ASN_MISMATCH !in reasons) {

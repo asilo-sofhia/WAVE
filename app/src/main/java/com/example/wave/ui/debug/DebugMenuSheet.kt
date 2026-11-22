@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -20,16 +21,23 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.wave.data.fake.Scenario
@@ -40,6 +48,7 @@ import com.example.wave.ui.theme.MinTouch
 import com.example.wave.ui.theme.Navy900
 import com.example.wave.ui.theme.Slate600
 import com.example.wave.ui.theme.Spacing
+import kotlinx.coroutines.launch
 
 /** Hidden demo menu (long-press the WAVE logo in debug builds). Switching scenario restarts at Home. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -50,6 +59,10 @@ fun DebugMenuSheet(
     onResetOnboarding: () -> Unit,
     realWifi: Boolean,
     onSetRealWifi: (Boolean) -> Unit,
+    serverUrl: String? = null,
+    onSaveServerUrl: (String) -> Boolean = { false },
+    /** Asks the server once and describes the answer. Null in demo mode: the server section is hidden. */
+    onTestServer: (suspend () -> String)? = null,
 ) {
     val scenario by store.scenario.collectAsStateWithLifecycle()
     val qrOverride by store.qrOverride.collectAsStateWithLifecycle()
@@ -160,11 +173,64 @@ fun DebugMenuSheet(
                 SwitchRow("Refuse \"Allow location\" requests", denyLocation) { store.denyLocationRequests.value = it }
             }
 
+            if (onTestServer != null) {
+                HorizontalDivider()
+                ServerSection(serverUrl, onSaveServerUrl, onTestServer)
+            }
+
             Spacer(Modifier.heightIn(min = Spacing.s))
             if (!realWifi) SecondaryButton("Simulate: leave Wi-Fi", onClick = { store.simulateDisconnect(); onDismiss() })
             SecondaryButton("Reset onboarding (show Splash)", onClick = { onResetOnboarding(); onDismiss() })
         }
     }
+}
+
+/** The exit-path server address (CONTRACT §4). Test saves the address first, then asks the server once. */
+@Composable
+private fun ServerSection(serverUrl: String?, onSave: (String) -> Boolean, onTest: suspend () -> String) {
+    var text by rememberSaveable { mutableStateOf(serverUrl.orEmpty()) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var testing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Label("Exit-path server")
+    OutlinedTextField(
+        value = text,
+        onValueChange = { text = it; status = null },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        label = { Text("Server address") },
+        placeholder = { Text("https://….trycloudflare.com") },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+        SecondaryButton(
+            "Save",
+            onClick = { status = if (onSave(text)) "Saved" else "Needs an https:// address" },
+            modifier = Modifier.weight(1f),
+        )
+        SecondaryButton(
+            if (testing) "Testing…" else "Test server",
+            onClick = {
+                if (testing) return@SecondaryButton
+                if (!onSave(text)) {
+                    status = "Needs an https:// address"
+                    return@SecondaryButton
+                }
+                testing = true
+                status = "Asking the server…"
+                scope.launch {
+                    try {
+                        status = onTest()
+                    } finally {
+                        testing = false
+                    }
+                }
+            },
+            modifier = Modifier.weight(1f),
+        )
+    }
+    status?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Slate600) }
 }
 
 @Composable
