@@ -22,4 +22,11 @@ object SecurityMapping {
         "6GHz" -> WifiBand.GHZ_6
         else -> null
     }
+
+    /** Inverse of [bandFromContract]. */
+    fun bandToContract(band: WifiBand): String = when (band) {
+        WifiBand.GHZ_2_4 -> "2.4GHz"
+        WifiBand.GHZ_5 -> "5GHz"
+        WifiBand.GHZ_6 -> "6GHz"
+    }
 }

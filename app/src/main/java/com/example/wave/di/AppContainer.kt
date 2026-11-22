@@ -7,6 +7,8 @@ import com.example.wave.data.NetworkClassifier
 import com.example.wave.data.QrVerifier
 import com.example.wave.data.RegistryRepository
 import com.example.wave.data.ScanRepository
+import com.example.wave.data.admin.RegistryDraftStore
+import com.example.wave.data.admin.SignalTracker
 import com.example.wave.data.exitpath.ExitPathFetcher
 import com.example.wave.data.exitpath.HttpExitPathFetcher
 import com.example.wave.data.exitpath.ServerExitPathChecker
@@ -93,6 +95,10 @@ class AppContainer(context: Context) {
     ).also { repo -> appScope.launch { repo.start() } }
 
     val registryRepository: RegistryRepository = syncingRegistry
+
+    /** Campus admin tools: the registry draft (saved on this phone) and the signal seen per access point this session. */
+    val registryDraft = RegistryDraftStore(File(context.filesDir, "admin/draft.json"))
+    val signalTracker = SignalTracker()
 
     /** Asks the server for its registry now (debug menu's Update registry button). */
     val registrySync: suspend () -> RegistrySync = { syncingRegistry.sync(force = true) }
