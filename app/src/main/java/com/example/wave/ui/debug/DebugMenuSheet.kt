@@ -48,6 +48,8 @@ fun DebugMenuSheet(
     store: ScenarioStore,
     onDismiss: () -> Unit,
     onResetOnboarding: () -> Unit,
+    realWifi: Boolean,
+    onSetRealWifi: (Boolean) -> Unit,
 ) {
     val scenario by store.scenario.collectAsStateWithLifecycle()
     val qrOverride by store.qrOverride.collectAsStateWithLifecycle()
@@ -70,11 +72,37 @@ fun DebugMenuSheet(
         ) {
             Text("Demo menu", style = MaterialTheme.typography.headlineSmall, color = Navy900)
             Text(
-                "Fake data only. Changing the scenario restarts the app at Home.",
+                if (realWifi) {
+                    "Real Wi-Fi is on: Nearby, Home and Monitor show this phone's Wi-Fi. Scenarios only change QR results."
+                } else {
+                    "Fake data only. Changing the scenario restarts the app at Home."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = Slate600,
             )
 
+            Label("Data source (restarts the app)")
+            Column(Modifier.selectableGroup()) {
+                listOf(true to "Real Wi-Fi (this phone)", false to "Demo scenarios (fake)").forEach { (real, label) ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = MinTouch)
+                            .selectable(
+                                selected = realWifi == real,
+                                role = Role.RadioButton,
+                                onClick = { if (realWifi != real) onSetRealWifi(real) },
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = realWifi == real, onClick = null)
+                        Spacer(Modifier.width(Spacing.m))
+                        Text(label, style = MaterialTheme.typography.bodyLarge, color = Navy900)
+                    }
+                }
+            }
+
+            HorizontalDivider()
             Label("Scenario")
             Column(Modifier.selectableGroup()) {
                 Scenario.entries.forEach { item ->
@@ -126,12 +154,14 @@ fun DebugMenuSheet(
                 }
             }
 
-            HorizontalDivider()
-            SwitchRow("Location permission granted", locationGranted) { store.setLocationGranted(it) }
-            SwitchRow("Refuse \"Allow location\" requests", denyLocation) { store.denyLocationRequests.value = it }
+            if (!realWifi) { // these only drive the fake permission and fake connection
+                HorizontalDivider()
+                SwitchRow("Location permission granted", locationGranted) { store.setLocationGranted(it) }
+                SwitchRow("Refuse \"Allow location\" requests", denyLocation) { store.denyLocationRequests.value = it }
+            }
 
             Spacer(Modifier.heightIn(min = Spacing.s))
-            SecondaryButton("Simulate: leave Wi-Fi", onClick = { store.simulateDisconnect(); onDismiss() })
+            if (!realWifi) SecondaryButton("Simulate: leave Wi-Fi", onClick = { store.simulateDisconnect(); onDismiss() })
             SecondaryButton("Reset onboarding (show Splash)", onClick = { onResetOnboarding(); onDismiss() })
         }
     }

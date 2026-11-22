@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -38,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -46,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -100,6 +103,8 @@ import com.example.wave.ui.theme.WaveShapes
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -119,17 +124,32 @@ sealed interface MonitorUiState {
     }
 }
 
+/**
+ * The connection updates live (signal, link speed...). The exit-path check runs once per connection
+ * (same access point + same verdict), so a signal change never restarts it.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MonitorViewModel(repo: ScanRepository, exitPath: ExitPathChecker) : ViewModel() {
-    val state: StateFlow<MonitorUiState> = repo.connection
+    /** (access point the result belongs to, result). Null result = skipped (already a WARNING). */
+    private val exit = repo.connection
+        .distinctUntilChangedBy { it?.bssid to it?.verdict }
         .flatMapLatest { network ->
             when {
-                network == null -> flowOf(MonitorUiState.NotConnected)
-                network.verdict == Verdict.WARNING -> flowOf(MonitorUiState.Connected(network, null))
-                else -> exitPath.check(network).map { MonitorUiState.Connected(network, it) }
+                network == null -> flowOf(null to null)
+                network.verdict == Verdict.WARNING -> flowOf(network.bssid to null)
+                else -> exitPath.check(network).map { network.bssid to it }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState.Loading)
+
+    val state: StateFlow<MonitorUiState> = combine(repo.connection, exit) { network, (checkedBssid, status) ->
+        when {
+            network == null -> MonitorUiState.NotConnected
+            network.verdict == Verdict.WARNING -> MonitorUiState.Connected(network, null)
+            // A different access point than the last result: its own check has just started.
+            checkedBssid != network.bssid -> MonitorUiState.Connected(network, ExitPathStatus.PENDING)
+            else -> MonitorUiState.Connected(network, status)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState.Loading)
 }
 
 // ---- Route ----
@@ -139,10 +159,11 @@ fun MonitorRoute(
     container: AppContainer,
     onDisconnectNow: (List<WarningReason>) -> Unit,
     onOpenTab: (Tab) -> Unit,
+    onOpenNetwork: (bssid: String) -> Unit,
 ) {
     val vm = waveViewModel { MonitorViewModel(container.scanRepository, container.exitPathChecker) }
     val state by vm.state.collectAsStateWithLifecycle()
-    MonitorScreen(state = state, onDisconnectNow = onDisconnectNow, onOpenTab = onOpenTab)
+    MonitorScreen(state = state, onDisconnectNow = onDisconnectNow, onOpenTab = onOpenTab, onOpenNetwork = onOpenNetwork)
 }
 
 // ---- Screen (layout follows docs/mockups/5 - Monitor Screen.png; one page, never scrolls) ----
@@ -153,6 +174,7 @@ fun MonitorScreen(
     onDisconnectNow: (List<WarningReason>) -> Unit,
     onOpenTab: (Tab) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenNetwork: (bssid: String) -> Unit = {},
 ) {
     Column(modifier.fillMaxSize()) {
         WaveTopBar(title = "Connection Monitor")
@@ -218,7 +240,7 @@ fun MonitorScreen(
                         }
                     }
                     Spacer(Modifier.height(Spacing.m))
-                    DetailsCard(network = network, registry = registry, exit = exit)
+                    DetailsCard(network = network, registry = registry, exit = exit, onOpen = { onOpenNetwork(network.bssid) })
                 }
             }
         }
@@ -401,10 +423,22 @@ private fun SummaryHalf(@DrawableRes icon: Int, style: StatusStyle, label: Strin
     }
 }
 
-/** "Connection details" card with the Live pill and five label/value rows. */
+/**
+ * "Connection details" card with the Live pill and five live label/value rows (mockup 5).
+ * Tapping it opens every reading for this connection (Network details: checks, Wi-Fi details, IP, link speed).
+ */
 @Composable
-private fun DetailsCard(network: NetworkUi, registry: StatusStyle, exit: StatusStyle) {
-    WaveCard(Modifier.fillMaxWidth(), color = Color.White, shape = RoundedCornerShape(24.dp), padding = 12.dp) {
+private fun DetailsCard(network: NetworkUi, registry: StatusStyle, exit: StatusStyle, onOpen: () -> Unit) {
+    val shape = RoundedCornerShape(24.dp)
+    WaveCard(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .clickable(onClickLabel = "Open all connection details", role = Role.Button, onClick = onOpen),
+        color = Color.White,
+        shape = shape,
+        padding = 12.dp,
+    ) {
         Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "Connection details",
@@ -413,6 +447,8 @@ private fun DetailsCard(network: NetworkUi, registry: StatusStyle, exit: StatusS
                 modifier = Modifier.weight(1f).semantics { heading() },
             )
             LivePill()
+            Spacer(Modifier.width(4.dp))
+            Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Slate600, modifier = Modifier.size(22.dp))
         }
         Spacer(Modifier.height(2.dp))
         DetailLine("BSSID", network.bssid)

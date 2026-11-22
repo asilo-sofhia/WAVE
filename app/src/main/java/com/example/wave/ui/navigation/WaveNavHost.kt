@@ -3,6 +3,7 @@ package com.example.wave.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -72,10 +73,12 @@ fun WaveNavHost(
                 container = container,
                 bssid = entry.arguments?.getString(Routes.ARG_BSSID).orEmpty(),
                 onBack = { nav.popBackStack() },
+                onOpenNetwork = { nav.navigate(Routes.detail(it)) },
             )
         }
         composable(Routes.SCAN_QR) {
             ScanQrRoute(
+                container = container,
                 onScanned = { nav.navigate(Routes.qrResult(it)) },
                 onBack = { nav.navigateToTab(Tab.HOME) },
             )
@@ -89,6 +92,7 @@ fun WaveNavHost(
                 payload = entry.arguments?.getString(Routes.ARG_PAYLOAD).orEmpty(),
                 onBack = { nav.popBackStack() },
                 onOpenTab = { nav.navigateToTab(it) },
+                onOpenNetwork = { nav.navigate(Routes.detail(it)) },
             )
         }
         composable(Routes.MONITOR) {
@@ -96,6 +100,7 @@ fun WaveNavHost(
                 container = container,
                 onDisconnectNow = { nav.navigate(Routes.disconnect(it)) },
                 onOpenTab = { nav.navigateToTab(it) },
+                onOpenNetwork = { nav.navigate(Routes.detail(it)) },
             )
         }
         composable(
@@ -117,9 +122,23 @@ fun WaveNavHost(
 
 /** Standard bottom-nav behavior: one copy of each tab, state kept when switching. */
 fun NavHostController.navigateToTab(tab: Tab) {
+    // Tapping the tab you're already in (e.g. Monitor while on a details page opened from Monitor)
+    // goes back to that tab's first screen instead of restoring the same page.
+    if (currentTab() == tab && popBackStack(tab.route, inclusive = false)) return
     navigate(tab.route) {
         popUpTo(Routes.HOME) { saveState = true }
         launchSingleTop = true
         restoreState = true
     }
+}
+
+/**
+ * The tab the current screen belongs to, found from the back stack: a details page opened from Monitor belongs
+ * to Monitor, one opened from Networks to Networks. Tabs replace each other ([navigateToTab] pops to Home), so at
+ * most one tab other than Home is ever in the stack. Null on full-screen pages before Home exists (Splash).
+ */
+fun NavController.currentTab(): Tab? {
+    Tab.entries.firstOrNull { it.route == currentDestination?.route }?.let { return it }
+    fun inStack(route: String) = runCatching { getBackStackEntry(route) }.isSuccess
+    return Tab.entries.firstOrNull { it != Tab.HOME && inStack(it.route) } ?: Tab.HOME.takeIf { inStack(Routes.HOME) }
 }

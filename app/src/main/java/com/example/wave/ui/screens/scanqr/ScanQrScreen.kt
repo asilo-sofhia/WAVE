@@ -1,5 +1,14 @@
 package com.example.wave.ui.screens.scanqr
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -29,12 +38,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -44,9 +58,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -54,8 +71,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.example.wave.R
 import com.example.wave.data.fake.FakeFixtures
+import com.example.wave.di.AppContainer
 import com.example.wave.model.WaveyMood
 import com.example.wave.ui.components.TopBarAction
 import com.example.wave.ui.components.WaveBackground
@@ -69,21 +90,109 @@ import com.example.wave.ui.theme.Navy900
 import com.example.wave.ui.theme.Slate600
 import com.example.wave.ui.theme.Spacing
 import com.example.wave.ui.theme.WAVETheme
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Frontend phase: no camera. The viewfinder is an illustration; tapping it (or Gallery) "scans" a sample
- * payload that the FakeQrVerifier answers according to the active scenario.
+ * Live camera in the viewfinder (CameraX), read by ML Kit; the first QR code found goes to [onScanned].
+ * Flashlight = the camera's torch. Gallery = pick a picture (Android photo picker, no permission needed) and
+ * read the QR code in it. Without camera permission the viewfinder asks for it, and Gallery still works.
+ * Demo mode (debug menu) keeps the old shortcut: tap the viewfinder to "scan" a sample code.
  */
 @Composable
-fun ScanQrRoute(onScanned: (payload: String) -> Unit, onBack: () -> Unit) {
-    var flashlightOn by rememberSaveable { mutableStateOf(false) }
+fun ScanQrRoute(container: AppContainer, onScanned: (payload: String) -> Unit, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val activity = LocalActivity.current
+    val scope = rememberCoroutineScope()
+    val reader = container.qrImageReader
+
+    fun cameraGranted() =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    var hasCamera by remember { mutableStateOf(cameraGranted()) }
+    var askedForCamera by rememberSaveable { mutableStateOf(false) }
+    var cameraFailed by remember { mutableStateOf(false) }
+    var torchOn by rememberSaveable { mutableStateOf(false) }
+    var torchAvailable by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
     var showHelp by rememberSaveable { mutableStateOf(false) }
+
+    // Camera frames arrive many times a second: hand over only the first code, once.
+    val delivered = remember { AtomicBoolean(false) }
+    val deliver: (String) -> Unit = { text -> if (delivered.compareAndSet(false, true)) onScanned(text) }
+    val analyzer = remember(reader) { reader.analyzer { deliver(it) } }
+
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        hasCamera = granted
+        if (!granted) message = "Camera is off. You can still pick a QR picture from Gallery."
+    }
+    val askForCamera: () -> Unit = {
+        val permanentlyDenied = askedForCamera && activity != null &&
+            !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA)
+        if (permanentlyDenied) {
+            context.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
+            )
+        } else {
+            askedForCamera = true
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        }
+    }
+    // Ask once when the screen first opens; after that only when the user taps the viewfinder.
+    LaunchedEffect(Unit) { if (!hasCamera && !askedForCamera) askForCamera() }
+    // Back from system settings: the permission may have changed.
+    LifecycleResumeEffect(Unit) {
+        hasCamera = cameraGranted()
+        onPauseOrDispose { }
+    }
+
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            message = "Reading the picture…"
+            scope.launch {
+                val text = reader.readFromImage(uri)
+                if (text != null) {
+                    message = null
+                    deliver(text)
+                } else {
+                    message = "No QR code found in that picture. Try a sharper, closer photo."
+                }
+            }
+        }
+    }
+
+    val demoSample = if (container.realWifi) null else FakeFixtures.SAMPLE_QR_PAYLOAD
+    val cameraOn = hasCamera && !cameraFailed
     ScanQrScreen(
-        flashlightOn = flashlightOn,
-        onToggleFlashlight = { flashlightOn = !flashlightOn },
-        onScan = { onScanned(FakeFixtures.SAMPLE_QR_PAYLOAD) },
+        flashlightOn = torchOn && torchAvailable,
+        onToggleFlashlight = { torchOn = !torchOn },
+        onScan = when {
+            !hasCamera -> askForCamera
+            demoSample != null -> { { deliver(demoSample) } }
+            else -> null
+        },
         onHelp = { showHelp = true },
         onBack = onBack,
+        onGallery = { gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+        flashlightEnabled = cameraOn && torchAvailable,
+        message = message,
+        viewfinderHint = when {
+            !hasCamera -> "Tap to turn on the camera"
+            cameraFailed -> "Camera unavailable"
+            else -> null
+        },
+        camera = if (cameraOn) {
+            {
+                QrCameraPreview(
+                    torchOn = torchOn,
+                    analyzer = analyzer,
+                    onTorchAvailable = { torchAvailable = it },
+                    onCameraError = { cameraFailed = true },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        } else {
+            null
+        },
     )
     if (showHelp) {
         AlertDialog(
@@ -106,10 +215,19 @@ fun ScanQrRoute(onScanned: (payload: String) -> Unit, onBack: () -> Unit) {
 fun ScanQrScreen(
     flashlightOn: Boolean,
     onToggleFlashlight: () -> Unit,
-    onScan: () -> Unit,
+    /** Viewfinder tap (turn on the camera, or the demo sample). Null = not tappable. */
+    onScan: (() -> Unit)?,
     onHelp: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onGallery: () -> Unit = { onScan?.invoke() },
+    flashlightEnabled: Boolean = true,
+    /** Replaces the instructions line (e.g. "No QR code found in that picture"). Announced by TalkBack. */
+    message: String? = null,
+    /** Shown under the QR glyph when there's no live camera. */
+    viewfinderHint: String? = null,
+    /** The live camera preview, drawn inside the frame under the brackets and scan line. */
+    camera: (@Composable () -> Unit)? = null,
 ) {
     Box(modifier.fillMaxSize()) {
         ScanBackdrop(Modifier.fillMaxSize())
@@ -144,7 +262,7 @@ fun ScanQrScreen(
                             drawCircle(Color.White, 2.5.dp.toPx(), Offset(w * 0.87f, peek.toPx() * 0.72f))
                         }
                         Wavey(WaveyMood.QR_PEEK, size = wavey, animate = false, modifier = Modifier.align(Alignment.TopCenter))
-                        Viewfinder(onScan, Modifier.align(Alignment.BottomCenter).size(frameW, frameH))
+                        Viewfinder(onScan, camera, viewfinderHint, Modifier.align(Alignment.BottomCenter).size(frameW, frameH))
                         Paws(
                             Modifier
                                 .align(Alignment.TopCenter)
@@ -160,22 +278,31 @@ fun ScanQrScreen(
                         textAlign = TextAlign.Center,
                     )
                     Text(
-                        "Align the Wi-Fi QR code within the frame.",
+                        message ?: "Align the Wi-Fi QR code within the frame.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Slate600,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = Spacing.s),
+                        modifier = Modifier
+                            .padding(horizontal = Spacing.s)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
                     )
                     Spacer(Modifier.height(Spacing.l))
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.l)) {
                         ToolButton(
-                            icon = R.drawable.ic_flash_outline,
+                            icon = if (flashlightOn) R.drawable.ic_flash else R.drawable.ic_flash_outline,
                             label = if (flashlightOn) "Flashlight on" else "Flashlight",
                             selected = flashlightOn,
                             onClick = onToggleFlashlight,
-                            modifier = Modifier.semantics { stateDescription = if (flashlightOn) "On" else "Off" },
+                            enabled = flashlightEnabled,
+                            modifier = Modifier.semantics {
+                                stateDescription = when {
+                                    !flashlightEnabled -> "Unavailable"
+                                    flashlightOn -> "On"
+                                    else -> "Off"
+                                }
+                            },
                         )
-                        ToolButton(icon = R.drawable.ic_image_outline, label = "Gallery", selected = false, onClick = onScan)
+                        ToolButton(icon = R.drawable.ic_image_outline, label = "Gallery", selected = false, onClick = onGallery)
                     }
                     Spacer(Modifier.height(Spacing.m))
                 }
@@ -203,9 +330,17 @@ private fun ScanBackdrop(modifier: Modifier) {
     }
 }
 
-/** Glassy rim, deep-blue inside, glowing cyan corner brackets, QR glyph and a sweeping scan line. */
+/**
+ * Glassy rim, glowing cyan corner brackets and a sweeping scan line over either the live [camera] or
+ * (no camera) the deep-blue fill with a QR glyph and [hint].
+ */
 @Composable
-private fun Viewfinder(onScan: () -> Unit, modifier: Modifier = Modifier) {
+private fun Viewfinder(
+    onScan: (() -> Unit)?,
+    camera: (@Composable () -> Unit)?,
+    hint: String?,
+    modifier: Modifier = Modifier,
+) {
     val scanY = if (LocalInspectionMode.current) {
         0.55f
     } else {
@@ -228,10 +363,32 @@ private fun Viewfinder(onScan: () -> Unit, modifier: Modifier = Modifier) {
                 Brush.radialGradient(listOf(Color(0xFF2C8DC6), Color(0xFF1A6CA6), Color(0xFF135486))),
                 inner,
             )
-            .clickable(onClickLabel = "Scan sample QR code", role = Role.Button, onClick = onScan),
+            .clip(inner)
+            .then(
+                if (onScan != null) {
+                    Modifier.clickable(onClickLabel = hint ?: "Scan sample QR code", role = Role.Button, onClick = onScan)
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(painterResource(R.drawable.ic_qr), null, tint = Color.White, modifier = Modifier.fillMaxSize(0.44f))
+        if (camera != null) {
+            camera()
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(painterResource(R.drawable.ic_qr), null, tint = Color.White, modifier = Modifier.size(64.dp))
+                if (hint != null) {
+                    Text(
+                        hint,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = Spacing.s, start = Spacing.l, end = Spacing.l),
+                    )
+                }
+            }
+        }
         Canvas(Modifier.fillMaxSize()) {
             val inset = 18.dp.toPx()
             val len = size.minDimension * 0.17f
@@ -300,15 +457,17 @@ private fun ToolButton(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val shape = RoundedCornerShape(24.dp)
     Column(
         modifier = modifier
+            .alpha(if (enabled) 1f else 0.5f)
             .size(width = 118.dp, height = 82.dp)
             .shadow(10.dp, shape, ambientColor = Color(0x403B82C4), spotColor = Color(0x553B82C4))
             .background(if (selected) BlueTint else Color.White, shape)
             .border(1.dp, Color.White, shape)
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(Spacing.m),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -323,7 +482,7 @@ private fun ToolButton(
     }
 }
 
-// Scan QR has one state in this phase (idle viewfinder); verifying/results live on the QR result screen.
+// Previews show the screen without a live camera (the camera only runs on a device).
 @Preview(showSystemUi = true, name = "Idle")
 @Composable
 private fun ScanQrPreview() = WAVETheme {
@@ -334,4 +493,17 @@ private fun ScanQrPreview() = WAVETheme {
 @Composable
 private fun ScanQrFlashPreview() = WAVETheme {
     WaveBackground { ScanQrScreen(true, {}, {}, {}, {}) }
+}
+
+@Preview(showSystemUi = true, name = "Camera off + message")
+@Composable
+private fun ScanQrNoCameraPreview() = WAVETheme {
+    WaveBackground {
+        ScanQrScreen(
+            false, {}, {}, {}, {},
+            flashlightEnabled = false,
+            message = "No QR code found in that picture. Try a sharper, closer photo.",
+            viewfinderHint = "Tap to turn on the camera",
+        )
+    }
 }

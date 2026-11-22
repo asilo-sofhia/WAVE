@@ -80,6 +80,8 @@ fun NetworkRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     note: String? = network.reasons.firstOrNull()?.title,
+    /** All access points this row stands for ([network] is the strongest). More than one adds a neutral line. */
+    accessPoints: List<NetworkUi> = listOf(network),
 ) {
     val style = network.verdict.style()
     WaveCard(modifier = modifier.fillMaxWidth(), padding = 0.dp, color = Color.White, shape = RoundedCornerShape(20.dp)) {
@@ -119,6 +121,13 @@ fun NetworkRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (accessPoints.size > 1) {
+                    FitText(
+                        accessPointsLabel(accessPoints),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.5.sp),
+                        color = Slate600,
+                    )
+                }
                 if (note != null) {
                     FitText(
                         note,
@@ -133,6 +142,13 @@ fun NetworkRow(
             Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Slate600, modifier = Modifier.size(22.dp))
         }
     }
+}
+
+/** "2 access points · 2.4 + 5 GHz" for a network seen through several radios. */
+fun accessPointsLabel(accessPoints: List<NetworkUi>): String {
+    val bands = accessPoints.map { it.band }.distinct().sortedBy { it.ordinal }
+        .joinToString(" + ") { it.label.removeSuffix(" GHz") } + " GHz"
+    return "${accessPoints.size} access points · $bands"
 }
 
 /** The small pill beside the network name: icon + word, tinted by verdict. */

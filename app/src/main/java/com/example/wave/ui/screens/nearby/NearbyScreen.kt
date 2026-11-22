@@ -31,8 +31,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -56,6 +58,7 @@ import com.example.wave.data.LocationPermissionGate
 import com.example.wave.data.ScanRepository
 import com.example.wave.data.fake.FakeFixtures
 import com.example.wave.di.AppContainer
+import com.example.wave.domain.RegistryClassifier
 import com.example.wave.model.NetworkUi
 import com.example.wave.model.RegistryInfo
 import com.example.wave.model.ScanResult
@@ -63,14 +66,16 @@ import com.example.wave.model.Verdict
 import com.example.wave.ui.components.NetworkRow
 import com.example.wave.ui.components.PrimaryButton
 import com.example.wave.ui.components.SectionHeader
-import com.example.wave.ui.components.TopBarAction
 import com.example.wave.ui.components.WaveBackground
 import com.example.wave.ui.components.WaveCard
 import com.example.wave.ui.components.WaveTopBar
+import com.example.wave.ui.components.rememberNowMillis
+import com.example.wave.ui.components.timeAgo
 import com.example.wave.ui.screens.waveViewModel
 import com.example.wave.ui.theme.BrandIcon
 import com.example.wave.ui.theme.Divider
 import com.example.wave.ui.theme.Navy900
+import com.example.wave.ui.theme.NeutralFg
 import com.example.wave.ui.theme.Slate600
 import com.example.wave.ui.theme.Spacing
 import com.example.wave.ui.theme.VerifiedFg
@@ -125,6 +130,38 @@ class NearbyViewModel(
 }
 
 /**
+ * The two list sections. [known]: networks WAVE knows from the signed registry (Verified) and fake copies of
+ * their names (Warning, kept right under the real one). [available]: everything else (Unknown). Order is kept.
+ */
+data class NearbySections(val known: List<NearbyRow>, val available: List<NearbyRow>) {
+    companion object {
+        fun of(rows: List<NearbyRow>): NearbySections {
+            val (known, available) = rows.partition { it.network.verdict != Verdict.UNKNOWN }
+            return NearbySections(known, available)
+        }
+    }
+}
+
+@Composable
+private fun EmptySectionText(text: String) {
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = Slate600, modifier = Modifier.padding(horizontal = Spacing.xs))
+}
+
+/** One list row: the strongest access point stands for every access point in [accessPoints]. */
+data class NearbyRow(val network: NetworkUi, val accessPoints: List<NetworkUi>)
+
+/**
+ * One row per network instead of per radio: a router's 2.4/5 GHz radios or mesh nodes collapse into one row.
+ * Grouped by name + verdict + security, so an evil twin (different verdict) or a same-name network with other
+ * security always keeps its own row. Hidden networks are never merged. Keeps the list order.
+ */
+fun groupRows(networks: List<NetworkUi>): List<NearbyRow> =
+    networks
+        .groupBy { n -> if (n.ssid == RegistryClassifier.HIDDEN_NAME) n.bssid else "${n.ssid}|${n.verdict}|${n.security}" }
+        .values
+        .map { aps -> aps.sortedByDescending { it.signal }.let { NearbyRow(it.first(), it) } }
+
+/**
  * The note under a row. A WARNING that shares its name with a verified network is the classic evil twin,
  * so it gets the mockup's line; otherwise the first reason.
  */
@@ -163,14 +200,8 @@ fun NearbyScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxSize()) {
-        WaveTopBar(
-            title = "Nearby Networks",
-            actions = {
-                if (state !is NearbyUiState.NeedsPermission) {
-                    TopBarAction(R.drawable.ic_refresh, "Scan again", onRefresh)
-                }
-            },
-        )
+        // One way to scan again: the Refresh in the summary card (as in mockup 3), so no top-bar refresh icon.
+        WaveTopBar(title = "Nearby Networks")
         Column(
             Modifier
                 .fillMaxWidth()
@@ -195,32 +226,58 @@ fun NearbyScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) { repeat(4) { SkeletonRow() } }
                 }
                 is NearbyUiState.Loaded -> {
+                    val sections = remember(state.result) { NearbySections.of(groupRows(state.result.networks)) }
+                    val row: @Composable (NearbyRow) -> Unit = { r ->
+                        NetworkRow(
+                            network = r.network,
+                            onClick = { onOpenNetwork(r.network.bssid) },
+                            note = noteFor(r.network, state.result.networks),
+                            accessPoints = r.accessPoints,
+                        )
+                    }
                     RegistryLine(state.result.registry)
-                    SectionHeader(
-                        "Available networks",
-                        Modifier.padding(top = Spacing.xs),
-                        trailing = "${state.result.networks.size} results",
-                    )
                     Spacer(Modifier.height(Spacing.xs))
-                    // The page itself never scrolls; on very short screens only this list does.
+                    // The page itself never scrolls; on very short screens only this list (with its headers) does.
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         verticalArrangement = Arrangement.spacedBy(9.dp),
                         contentPadding = PaddingValues(top = 2.dp, bottom = Spacing.s),
                     ) {
-                        items(state.result.networks, key = { it.bssid }) { network ->
-                            NetworkRow(
-                                network = network,
-                                onClick = { onOpenNetwork(network.bssid) },
-                                note = noteFor(network, state.result.networks),
+                        // Known: on the signed registry (Verified), plus fakes copying those names (Warning).
+                        // Hidden while no registry is loaded: the registry line above already explains why.
+                        if (state.result.registry.loaded || sections.known.isNotEmpty()) {
+                            item(key = "header-known") {
+                                SectionHeader(
+                                    "Known networks",
+                                    Modifier.semantics { heading() },
+                                    trailing = plural(sections.known.size, "result"),
+                                )
+                            }
+                            if (sections.known.isEmpty()) {
+                                item(key = "empty-known") { EmptySectionText("None of the networks around you are on the registry.") }
+                            }
+                            items(sections.known, key = { it.network.bssid }) { row(it) }
+                        }
+                        item(key = "header-available") {
+                            SectionHeader(
+                                "Available networks",
+                                Modifier.padding(top = Spacing.xs).semantics { heading() },
+                                trailing = plural(sections.available.size, "result"),
                             )
                         }
+                        if (sections.available.isEmpty()) {
+                            item(key = "empty-available") { EmptySectionText("No other networks nearby.") }
+                        }
+                        items(sections.available, key = { it.network.bssid }) { row(it) }
                     }
                 }
             }
         }
     }
 }
+
+/** "1 network", "4 networks". */
+private fun plural(count: Int, noun: String) = if (count == 1) "1 $noun" else "$count ${noun}s"
 
 /** Glass card: white Wi-Fi circle, "N networks found", "Last scanned just now", blue Refresh. */
 @Composable
@@ -230,7 +287,8 @@ private fun SummaryCard(state: NearbyUiState, onRefresh: () -> Unit) {
         NearbyUiState.Loading -> "Scanning…" to "Checking each network against the registry."
         NearbyUiState.NeedsPermission -> "Location is off" to "Needed to list nearby Wi-Fi."
         NearbyUiState.Empty -> "No networks found" to "Last scanned just now"
-        is NearbyUiState.Loaded -> "${state.result.networks.size} networks found" to "Last scanned just now"
+        is NearbyUiState.Loaded -> "${plural(groupRows(state.result.networks).size, "network")} found" to
+            "Last scanned ${timeAgo(state.result.scannedAtMillis, rememberNowMillis())}"
     }
     Row(
         Modifier
@@ -283,19 +341,27 @@ private fun RegistryLine(registry: RegistryInfo) {
         Modifier.fillMaxWidth().padding(horizontal = Spacing.xs).semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(painterResource(R.drawable.ic_database), null, tint = VerifiedFg, modifier = Modifier.size(20.dp))
+        // Gray (neutral) when no registry is loaded: nothing can be Verified yet.
+        Icon(
+            painterResource(R.drawable.ic_database),
+            null,
+            tint = if (registry.loaded) VerifiedFg else NeutralFg,
+            modifier = Modifier.size(20.dp),
+        )
         Spacer(Modifier.width(Spacing.s))
         Text(
-            "Using ${registry.source}",
+            if (registry.loaded) "Using ${registry.source}" else "No school registry yet, so networks can't be verified",
             style = MaterialTheme.typography.bodyMedium,
             color = Slate600,
             modifier = Modifier.weight(1f),
         )
-        Text(
-            "Updated ${registry.updatedAt}",
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-            color = VerifiedFg,
-        )
+        if (registry.loaded) {
+            Text(
+                "Updated ${registry.updatedAt}",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                color = VerifiedFg,
+            )
+        }
     }
 }
 
@@ -343,7 +409,8 @@ private fun PreviewOf(state: NearbyUiState) = WAVETheme {
     WaveBackground { NearbyScreen(state, {}, {}, {}) }
 }
 
-private fun loaded(vararg n: NetworkUi) = NearbyUiState.Loaded(ScanResult(n.toList(), FakeFixtures.registry, 0L))
+private fun loaded(vararg n: NetworkUi) =
+    NearbyUiState.Loaded(ScanResult(n.toList(), FakeFixtures.registry, System.currentTimeMillis()))
 
 @Preview(showSystemUi = true, name = "Mockup list (verified, warning, unknown)")
 @Composable

@@ -33,18 +33,20 @@ import com.example.wave.di.AppContainer
 import com.example.wave.model.NetworkUi
 import com.example.wave.model.Verdict
 import com.example.wave.model.WaveyMood
-import com.example.wave.model.signalQuality
 import com.example.wave.model.waveyMoodFor
+import com.example.wave.ui.components.AccessPointsCard
+import com.example.wave.ui.components.ConnectionCard
 import com.example.wave.ui.components.HeroCard
+import com.example.wave.ui.components.NetworkMetricsCard
 import com.example.wave.ui.components.PrimaryButton
-import com.example.wave.ui.components.ReasonList
 import com.example.wave.ui.components.SecondaryButton
-import com.example.wave.ui.components.TechDetailsToggle
+import com.example.wave.ui.components.VerdictChecksCard
 import com.example.wave.ui.components.VerdictChip
 import com.example.wave.ui.components.WaveBackground
-import com.example.wave.ui.components.WaveCard
 import com.example.wave.ui.components.WaveScreen
 import com.example.wave.ui.components.Wavey
+import com.example.wave.ui.components.connectionRows
+import com.example.wave.ui.components.metricRows
 import com.example.wave.ui.components.openWifiSettings
 import com.example.wave.ui.screens.waveViewModel
 import com.example.wave.ui.theme.Navy900
@@ -52,35 +54,43 @@ import com.example.wave.ui.theme.Slate600
 import com.example.wave.ui.theme.Spacing
 import com.example.wave.ui.theme.WAVETheme
 import com.example.wave.ui.theme.WarningFg
-import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 
 // ---- State ----
 
 sealed interface DetailUiState {
     data object Loading : DetailUiState
     data object NotFound : DetailUiState
-    data class Loaded(val network: NetworkUi) : DetailUiState
+    /** [accessPoints]: every radio broadcasting this name (incl. [network]); shown when there's more than one. */
+    data class Loaded(val network: NetworkUi, val accessPoints: List<NetworkUi> = emptyList()) : DetailUiState
 }
 
+/** A scanned network is a snapshot; the network you're connected to updates live (signal, link speed, IP). */
 class DetailViewModel(repo: ScanRepository, bssid: String) : ViewModel() {
-    private val _state = MutableStateFlow<DetailUiState>(DetailUiState.Loading)
-    val state: StateFlow<DetailUiState> = _state.asStateFlow()
+    private val snapshot = repo.findNetwork(bssid)
 
-    init {
-        _state.value = repo.findNetwork(bssid)?.let { DetailUiState.Loaded(it) } ?: DetailUiState.NotFound
-    }
+    val state: StateFlow<DetailUiState> = repo.connection
+        .map { connected -> connected?.takeIf { it.bssid.equals(bssid, ignoreCase = true) } ?: snapshot }
+        .map { network -> network?.let { DetailUiState.Loaded(it, repo.accessPointsOf(it)) } ?: DetailUiState.NotFound }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            snapshot?.let { DetailUiState.Loaded(it, repo.accessPointsOf(it)) } ?: DetailUiState.NotFound,
+        )
 }
 
 // ---- Route ----
 
 @Composable
-fun DetailRoute(container: AppContainer, bssid: String, onBack: () -> Unit) {
+fun DetailRoute(container: AppContainer, bssid: String, onBack: () -> Unit, onOpenNetwork: (bssid: String) -> Unit = {}) {
     val vm = waveViewModel(key = "detail-$bssid") { DetailViewModel(container.scanRepository, bssid) }
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    DetailScreen(state = state, onBack = onBack, onOpenWifiSettings = { openWifiSettings(context) })
+    DetailScreen(state = state, onBack = onBack, onOpenWifiSettings = { openWifiSettings(context) }, onOpenNetwork = onOpenNetwork)
 }
 
 // ---- Screen ----
@@ -91,6 +101,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onOpenWifiSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenNetwork: (bssid: String) -> Unit = {},
 ) {
     WaveScreen(title = "Network details", onBack = onBack, modifier = modifier) {
         when (state) {
@@ -110,13 +121,19 @@ fun DetailScreen(
                 )
                 PrimaryButton("Back to networks", onClick = onBack)
             }
-            is DetailUiState.Loaded -> Loaded(state.network, onBack, onOpenWifiSettings)
+            is DetailUiState.Loaded -> Loaded(state.network, state.accessPoints, onBack, onOpenWifiSettings, onOpenNetwork)
         }
     }
 }
 
 @Composable
-private fun Loaded(network: NetworkUi, onBack: () -> Unit, onOpenWifiSettings: () -> Unit) {
+private fun Loaded(
+    network: NetworkUi,
+    accessPoints: List<NetworkUi>,
+    onBack: () -> Unit,
+    onOpenWifiSettings: () -> Unit,
+    onOpenNetwork: (String) -> Unit,
+) {
     val (title, body) = when (network.verdict) {
         Verdict.VERIFIED -> "Looks legit" to
             "This access point is on the official registry and its security matches."
@@ -150,30 +167,30 @@ private fun Loaded(network: NetworkUi, onBack: () -> Unit, onOpenWifiSettings: (
         }
     }
 
-    if (network.reasons.isNotEmpty()) {
-        WaveCard(Modifier.fillMaxWidth()) {
-            Text("Why WAVE is worried", style = MaterialTheme.typography.titleMedium, color = Navy900)
-            Spacer(Modifier.height(Spacing.m))
-            ReasonList(network.reasons)
-        }
-    }
+    // Why: every check, measured vs. what the registry expects. Then the raw readings behind it.
+    VerdictChecksCard(network)
+    network.connection?.let { ConnectionCard(it) }
+    NetworkMetricsCard(network)
+    if (accessPoints.size > 1) AccessPointsCard(network, accessPoints, onOpen = onOpenNetwork)
 
     // One clear action per verdict.
     when (network.verdict) {
-        Verdict.VERIFIED -> PrimaryButton("Connect in Wi-Fi settings", onClick = onOpenWifiSettings, icon = R.drawable.ic_wifi)
+        Verdict.VERIFIED -> PrimaryButton(
+            if (network.connection != null) "Open Wi-Fi settings" else "Connect in Wi-Fi settings",
+            onClick = onOpenWifiSettings,
+            icon = R.drawable.ic_wifi,
+        )
         Verdict.UNKNOWN -> SecondaryButton("Back to networks", onClick = onBack)
         Verdict.WARNING -> PrimaryButton("Back to safe networks", onClick = onBack, icon = R.drawable.ic_arrow_back)
     }
-
-    TechDetailsToggle(technicalRows(network))
 }
 
+/** Raw rows for "Technical details" toggles (Disconnect-now): SSID, every metric, verdict and reason codes. */
 fun technicalRows(network: NetworkUi): List<Pair<String, String>> = buildList {
     add("SSID" to network.ssid)
-    add("BSSID" to network.bssid)
-    add("Security" to network.security.label)
-    add("Band" to network.band.label)
-    add("Signal" to "${network.signal} dBm (${signalQuality(network.signal).label})")
+    addAll(metricRows(network))
+    network.connection?.let { addAll(connectionRows(it)) }
+    network.metrics?.let { add("Security flags" to it.capabilities.ifBlank { "(none)" }) }
     add("Verdict" to network.verdict.name)
     if (network.reasons.isNotEmpty()) add("Reason codes" to network.reasons.joinToString("\n") { it.name })
 }

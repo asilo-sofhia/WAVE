@@ -47,6 +47,19 @@ keystore.properties
 secrets.properties
 .env
 
+# Backend (signing tool + server). backend/.gitignore repeats these.
+# Private keys never go to Git
+backend/keys/*.private.pem
+*.pem
+# Home network details stay on each laptop
+backend/registry/*.home-dev.json*
+# ...and its copy bundled into debug builds (app/build.gradle.kts copyHomeRegistry)
+app/src/debug/assets/registry/
+# Generated QR images contain Wi-Fi passwords
+backend/out/
+backend/.venv/
+__pycache__/
+
 # Lint outputs
 lint/intermediates/
 lint/generated/

@@ -7,6 +7,8 @@ enum class SecurityType(val label: String) {
     WPA2_PERSONAL("WPA2 Personal"),
     WPA3_PERSONAL("WPA3 Personal"),
     WPA2_WPA3_PERSONAL("WPA2/WPA3 Personal"),
+    /** Enterprise (EAP) and OWE networks show up in real scans; WAVE can't verify them (CONTRACT §2 → Unknown). */
+    UNSUPPORTED("Enterprise / other"),
 }
 
 enum class WifiBand(val label: String) {
@@ -24,9 +26,16 @@ data class NetworkUi(
     val signal: Int,
     val verdict: Verdict,
     val reasons: List<WarningReason> = emptyList(),
+    /** Radio readings from the scan (available before connecting). Null when not measured. */
+    val metrics: NetworkMetrics? = null,
+    /** Every check behind [verdict], passed or not. Empty when no checks ran. */
+    val checks: List<VerdictCheck> = emptyList(),
+    /** Set only for the network you're connected to: IP, gateway, DNS, link speed. */
+    val connection: ConnectionDetails? = null,
 )
 
-data class RegistryInfo(val source: String, val updatedAt: String)
+/** [loaded] = false when no school registry is available yet, so nothing can be Verified. */
+data class RegistryInfo(val source: String, val updatedAt: String, val loaded: Boolean = true)
 
 data class ScanResult(
     val networks: List<NetworkUi>,

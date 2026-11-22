@@ -1,0 +1,20 @@
+{
+  "schema": "wave-registry/1",
+  "version": 1,
+  "key_id": "wave-2026-a",
+  "issued_at": "2026-11-10T00:00:00Z",
+  "expires_at": "2026-12-10T00:00:00Z",
+  "campus_asns": [
+    { "asn": 0, "name": "TBD - measure on campus with: curl ipinfo.io" }
+  ],
+  "networks": [
+    {
+      "ssid": "BSU-ICT-TESTLAB",
+      "security": "WPA2-PSK",
+      "aps": [
+        { "bssid": "00:00:5e:00:53:01", "band": "2.4GHz", "channel": 6,  "building": "CICS Lab (placeholder - replace after survey)", "rssi_min": -85, "rssi_max": -25 },
+        { "bssid": "00:00:5e:00:53:02", "band": "5GHz",   "channel": 36, "building": "CICS Lab (placeholder - replace after survey)", "rssi_min": -85, "rssi_max": -25 }
+      ]
+    }
+  ]
+}
