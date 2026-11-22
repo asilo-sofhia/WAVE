@@ -17,6 +17,12 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Default exit-path server (CONTRACT §4): wave.serverUrl=https://... in gradle.properties (your own in
+        // %USERPROFILE%\.gradle, or the project's once the address is permanent). Empty = none; the debug menu
+        // can set one on the phone.
+        val serverUrl = providers.gradleProperty("wave.serverUrl").getOrElse("").filter { it != '"' && it != '\\' }
+        buildConfigField("String", "WAVE_SERVER_URL", "\"$serverUrl\"")
     }
 
     buildTypes {
@@ -32,6 +38,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
