@@ -42,6 +42,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
@@ -89,6 +90,7 @@ import com.example.wave.ui.components.drawSparkle
 import com.example.wave.ui.components.style
 import com.example.wave.ui.navigation.Tab
 import com.example.wave.ui.screens.waveViewModel
+import com.example.wave.ui.theme.BrandIcon
 import com.example.wave.ui.theme.Danger
 import com.example.wave.ui.theme.Divider
 import com.example.wave.ui.theme.Navy900
@@ -98,6 +100,7 @@ import com.example.wave.ui.theme.Spacing
 import com.example.wave.ui.theme.VerifiedBg
 import com.example.wave.ui.theme.VerifiedFg
 import com.example.wave.ui.theme.WAVETheme
+import com.example.wave.ui.theme.WarningBg
 import com.example.wave.ui.theme.WarningFg
 import com.example.wave.ui.theme.WaveShapes
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -196,7 +199,7 @@ fun MonitorScreen(
                 MonitorUiState.NotConnected -> {
                     MonitorHero(
                         mood = WaveyMood.NORMAL,
-                        orbActive = false,
+                        connected = false,
                         pill = { ConnectionPill("Not connected", NeutralFg, Color.White.copy(alpha = 0.85f)) },
                         title = "You're not on Wi-Fi",
                         subtitle = "Join a network marked Verified and WAVE will watch it here.",
@@ -213,12 +216,12 @@ fun MonitorScreen(
                         ?: NotCheckedStyle.copy(label = if (network.verdict == Verdict.WARNING) "Skipped" else "Not needed")
                     MonitorHero(
                         mood = state.mood,
-                        orbActive = true,
+                        connected = true,
                         pill = {
                             if (state.unsafe) {
-                                ConnectionPill("Connected · not safe", WarningFg, Color.White.copy(alpha = 0.85f))
+                                ConnectionPill("Connected · not safe", WarningFg, WarningBg)
                             } else {
-                                ConnectionPill("Connected", VerifiedFg, Color.White.copy(alpha = 0.85f))
+                                ConnectionPill("Connected", VerifiedFg, VerifiedBg)
                             }
                         },
                         title = network.ssid,
@@ -232,7 +235,7 @@ fun MonitorScreen(
                         // Hero and details share the page; the hero gets a bit more so Wavey stays the focus.
                         modifier = Modifier.weight(1.3f),
                     ) {
-                        CheckSummary(registry = registry, exit = exit)
+                        CheckSummary(registry = registry, registryIcon = registryIcon(state.network.verdict), exit = exit)
                         if (state.unsafe) {
                             Spacer(Modifier.height(Spacing.m))
                             PrimaryButton(
@@ -257,14 +260,22 @@ fun MonitorScreen(
     }
 }
 
+/** Registry tile icon: a shield marked with the verdict (✓ / ! / ?), so the state never relies on color alone. */
+@DrawableRes
+private fun registryIcon(verdict: Verdict): Int = when (verdict) {
+    Verdict.VERIFIED -> R.drawable.ic_shield_check
+    Verdict.WARNING -> R.drawable.ic_shield_alert
+    Verdict.UNKNOWN -> R.drawable.ic_shield_question
+}
+
 /**
- * Hero: Wavey hugging a glowing Wi-Fi orb (sized to whatever height is left), the connection pill,
- * the network name, a one-line status, then [bottom] (the Registry / Exit path summary).
+ * Hero: Wavey standing on a soft glow (sized to whatever height is left), then the network name with a Wi-Fi
+ * mark, the connection pill, a one-line status, and [bottom] (the Registry / Exit path summary).
  */
 @Composable
 private fun MonitorHero(
     mood: WaveyMood,
-    orbActive: Boolean,
+    connected: Boolean,
     pill: @Composable () -> Unit,
     title: String,
     subtitle: String,
@@ -272,30 +283,25 @@ private fun MonitorHero(
     bottom: @Composable ColumnScope.() -> Unit = {},
 ) {
     HeroCard(modifier.fillMaxWidth(), padding = 12.dp) {
-        // Wavey fills the space it's given (like the QR result screen): no size cap, centred, so there's no
-        // empty sky above it.
+        // Wavey fills the space it's given (like the QR result screen), centred, with nothing in front of it.
         BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
                 .weight(1f),
             contentAlignment = Alignment.Center,
         ) {
-            val stage = minOf(maxHeight, maxWidth * 0.66f)
-            if (stage >= 48.dp) {
+            val wavey = minOf(maxHeight, maxWidth * 0.62f)
+            if (wavey >= 48.dp) {
                 HeroSparkles(Modifier.matchParentSize())
-                WaveyWithOrb(mood, orbActive, stage)
+                WaveyOnGlow(mood, wavey)
             }
         }
+        Spacer(Modifier.height(Spacing.xs))
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            NetworkTitle(title, connected)
+            Spacer(Modifier.height(6.dp))
             pill()
-            Spacer(Modifier.height(4.dp))
-            FitText(
-                title,
-                style = MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.ExtraBold),
-                color = Navy900,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.semantics { heading() },
-            )
+            Spacer(Modifier.height(6.dp))
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp, lineHeight = 18.sp),
@@ -310,35 +316,47 @@ private fun MonitorHero(
 }
 
 /**
- * The whole Wavey (two fins, two feet, face clear, as on the QR result screen) holding a small glowing Wi-Fi orb
- * in front of its belly: below the mouth, between the fins, above the feet. No extra paws are drawn.
+ * Wavey standing on a soft glow, whole body visible with nothing in front of it.
+ * Decorative: the title, pill and status line already say everything, so TalkBack skips it.
  */
 @Composable
-private fun WaveyWithOrb(mood: WaveyMood, active: Boolean, stageSize: Dp) {
-    // Big orb filling the belly: its top stays below the cheeks (~50% down), its bottom just above the feet (~88%).
-    val orb = stageSize * 0.33f
-    Box(Modifier.size(stageSize).clearAndSetSemantics {}) {
-        Wavey(mood, size = stageSize, animate = false)
-        // Orb: soft glass halo + deep-blue disc + white Wi-Fi mark, centred on the belly (~69% down).
+private fun WaveyOnGlow(mood: WaveyMood, size: Dp) {
+    Box(Modifier.size(size).clearAndSetSemantics {}) {
+        // Ground glow under the feet (the art's feet end ~95% down).
+        Canvas(Modifier.matchParentSize()) {
+            val w = this.size.width
+            val h = this.size.height
+            drawOval(Color.White.copy(alpha = 0.35f), topLeft = Offset(w * 0.16f, h * 0.885f), size = Size(w * 0.68f, h * 0.11f))
+            drawOval(Color.White.copy(alpha = 0.45f), topLeft = Offset(w * 0.26f, h * 0.905f), size = Size(w * 0.48f, h * 0.07f))
+        }
+        Wavey(mood, size = size)
+    }
+}
+
+/** "📶 | AndroidWifi": Wi-Fi mark (blue when connected, gray when not), a thin divider, then the name (heading). */
+@Composable
+private fun NetworkTitle(title: String, connected: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+        Icon(
+            painterResource(R.drawable.ic_wifi),
+            contentDescription = null,
+            tint = if (connected) BrandIcon else NeutralFg,
+            modifier = Modifier.size(26.dp),
+        )
+        Spacer(Modifier.width(10.dp))
         Box(
             Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = stageSize * 0.69f - orb * 0.58f)
-                .size(orb * 1.16f)
-                .background(Color.White.copy(alpha = 0.45f), CircleShape)
-                .border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape)
-                .padding(orb * 0.08f)
-                .shadow(10.dp, CircleShape, spotColor = Color(0xFF0A63E8))
-                .background(
-                    Brush.radialGradient(
-                        if (active) listOf(Color(0xFF48B6FF), Color(0xFF0E74F0), Color(0xFF0A5FD8)) else listOf(Color(0xFFB9C4D3), Color(0xFF8995A8)),
-                    ),
-                    CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(painterResource(R.drawable.ic_wifi), null, tint = Color.White, modifier = Modifier.size(orb * 0.5f))
-        }
+                .width(1.5.dp)
+                .height(22.dp)
+                .background(Color(0xFF9CC9F0), RoundedCornerShape(1.dp)),
+        )
+        Spacer(Modifier.width(10.dp))
+        FitText(
+            title,
+            style = MaterialTheme.typography.headlineSmall.copy(fontSize = 23.sp, lineHeight = 28.sp, fontWeight = FontWeight.ExtraBold),
+            color = Navy900,
+            modifier = Modifier.semantics { heading() },
+        )
     }
 }
 
@@ -354,13 +372,14 @@ private fun HeroSparkles(modifier: Modifier) {
     }
 }
 
-/** "● Connected" pill: colored dot + word on a white pill. */
+/** "● Connected" pill: colored dot + word on a tinted pill with a thin border of the same color. */
 @Composable
 private fun ConnectionPill(text: String, color: Color, background: Color) {
     Row(
         Modifier
             .background(background, WaveShapes.pill)
-            .padding(horizontal = 14.dp, vertical = 3.dp),
+            .border(1.dp, color.copy(alpha = 0.3f), WaveShapes.pill)
+            .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Spacer(Modifier.size(8.dp).background(color, CircleShape))
@@ -369,9 +388,9 @@ private fun ConnectionPill(text: String, color: Color, background: Color) {
     }
 }
 
-/** White summary card split in two: Registry | Exit path (tile + label + bold value). */
+/** White summary card split in two: Registry (shield) | Exit path (globe), each tile + label + bold value. */
 @Composable
-private fun CheckSummary(registry: StatusStyle, exit: StatusStyle) {
+private fun CheckSummary(registry: StatusStyle, @DrawableRes registryIcon: Int, exit: StatusStyle) {
     val shape = RoundedCornerShape(22.dp)
     Row(
         Modifier
@@ -383,7 +402,7 @@ private fun CheckSummary(registry: StatusStyle, exit: StatusStyle) {
             .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SummaryHalf(registry.icon, registry, "Registry", Modifier.weight(1f))
+        SummaryHalf(registryIcon, registry, "Registry", Modifier.weight(1f))
         Box(
             Modifier
                 .padding(horizontal = Spacing.s, vertical = 6.dp)
@@ -391,7 +410,7 @@ private fun CheckSummary(registry: StatusStyle, exit: StatusStyle) {
                 .fillMaxHeight()
                 .background(Divider),
         )
-        SummaryHalf(exit.icon, exit, "Exit path", Modifier.weight(1f))
+        SummaryHalf(R.drawable.ic_globe, exit, "Exit path", Modifier.weight(1f))
     }
 }
 
@@ -400,13 +419,13 @@ private fun SummaryHalf(@DrawableRes icon: Int, style: StatusStyle, label: Strin
     Row(modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
-                .size(36.dp)
+                .size(42.dp)
                 .background(Brush.verticalGradient(listOf(style.bg.copy(alpha = 0.7f), style.bg)), RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(icon), null, tint = style.fg, modifier = Modifier.size(21.dp))
+            Icon(painterResource(icon), null, tint = style.fg, modifier = Modifier.size(25.dp))
         }
-        Spacer(Modifier.width(9.dp))
+        Spacer(Modifier.width(10.dp))
         Column {
             FitText(label, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp), color = Slate600)
             FitText(
