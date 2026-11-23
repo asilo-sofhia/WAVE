@@ -25,11 +25,13 @@ import getpass
 import json
 import os
 import re
+import secrets
 import sys
 from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
@@ -517,6 +519,161 @@ def write_qr_png(raw: str, out: Path, caption: str | None) -> None:
         img = canvas
     out.parent.mkdir(parents=True, exist_ok=True)
     img.save(out)
+
+
+# ---------------------------------------------------------------------------
+# Place admins (CONTRACT §6-7): enrolment requests, root-signed certificates, place registry packages
+# ---------------------------------------------------------------------------
+CERT_DOMAIN = b"WAVE-CERT-v1\n"
+CERT_SCHEMA = "wave-admin-cert/1"
+REQUEST_PREFIX = "WAVEREQ:1:"
+CERT_PREFIX = "WAVECERT:1:"
+ADMIN_KEY_ALG = "ES256"
+PLACE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+CERT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
+NOT_YET_VALID = "NOT_YET_VALID"
+WRONG_PLACE = "WRONG_PLACE"
+CERT_FIELDS = ("schema", "cert_id", "place_id", "place_name", "admin_name", "admin_key_alg",
+               "admin_public_key", "issued_at", "expires_at", "root_key_id")
+
+
+def _check_place_id(place_id: object) -> str:
+    if not isinstance(place_id, str) or not PLACE_ID_RE.match(place_id):
+        raise ValueError(f"place id must be lowercase letters, digits and '-', max 32 chars (got {place_id!r})")
+    return place_id
+
+
+def _check_name(value: object, what: str) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > 64:
+        raise ValueError(f"{what} must be 1-64 characters")
+    return value
+
+
+def admin_public_key_b64(pub: ec.EllipticCurvePublicKey) -> str:
+    """base64url of the P-256 SubjectPublicKeyInfo DER: the form Android Keystore exports."""
+    if not isinstance(pub, ec.EllipticCurvePublicKey) or not isinstance(pub.curve, ec.SECP256R1):
+        raise TypeError("admin keys must be P-256 (ES256)")
+    return b64u_encode(pub.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo))
+
+
+def load_admin_public_key(text: str) -> ec.EllipticCurvePublicKey:
+    try:
+        key = serialization.load_der_public_key(b64u_decode(text))
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"admin public key is not a valid key ({exc})") from exc
+    if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256R1):
+        raise ValueError("admin public key must be P-256 (ES256)")
+    return key
+
+
+def _fmt(t: dt.datetime) -> str:
+    return t.astimezone(dt.timezone.utc).strftime(TIME_FMT)
+
+
+def _parse_time(value: object) -> dt.datetime:
+    if not isinstance(value, str):
+        raise ValueError("time must be a string")
+    return dt.datetime.strptime(value, TIME_FMT).replace(tzinfo=dt.timezone.utc)
+
+
+def _compact(obj: dict) -> bytes:
+    return json.dumps(obj, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8")
+
+
+def make_admin_request(admin_name: str, place_id: str, pub: ec.EllipticCurvePublicKey) -> str:
+    """What an admin phone shares to ask for a certificate: its name, the place, and its public key."""
+    body = {
+        "admin_name": _check_name(admin_name, "admin name"),
+        "place_id": _check_place_id(place_id),
+        "admin_key_alg": ADMIN_KEY_ALG,
+        "admin_public_key": admin_public_key_b64(pub),
+    }
+    return REQUEST_PREFIX + b64u_encode(_compact(body))
+
+
+def parse_admin_request(text: str) -> dict:
+    """The request's fields, checked. Raises ValueError."""
+    text = text.strip()
+    if not text.startswith(REQUEST_PREFIX):
+        raise ValueError(f"not a WAVE admin request (must start with {REQUEST_PREFIX})")
+    try:
+        body = json.loads(b64u_decode(text[len(REQUEST_PREFIX):]).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError(f"request is not readable ({exc})") from exc
+    if not isinstance(body, dict):
+        raise ValueError("request must be an object")
+    _check_name(body.get("admin_name"), "admin name")
+    _check_place_id(body.get("place_id"))
+    if body.get("admin_key_alg") != ADMIN_KEY_ALG:
+        raise ValueError(f"admin key algorithm must be {ADMIN_KEY_ALG}")
+    key = body.get("admin_public_key")
+    load_admin_public_key(key if isinstance(key, str) else "")
+    return {k: body[k] for k in ("admin_name", "place_id", "admin_key_alg", "admin_public_key")}
+
+
+def certify_admin(request: dict, place_id: str, place_name: str, days: int, root_key_id: str,
+                  root_key: Ed25519PrivateKey, now: dt.datetime | None = None) -> str:
+    """Root-sign a certificate: this phone key may sign registries for [place_id] for [days] days."""
+    if request["place_id"] != place_id:
+        raise ValueError(f"the request asks for place {request['place_id']!r}, not {place_id!r}")
+    _check_name(place_name, "place name")
+    if not isinstance(days, int) or days < 1:
+        raise ValueError("days must be 1 or more")
+    issued = (now or dt.datetime.now(dt.timezone.utc)).replace(microsecond=0)
+    cert = {
+        "schema": CERT_SCHEMA,
+        "cert_id": secrets.token_hex(8),
+        "place_id": place_id,
+        "place_name": place_name,
+        "admin_name": request["admin_name"],
+        "admin_key_alg": ADMIN_KEY_ALG,
+        "admin_public_key": request["admin_public_key"],
+        "issued_at": _fmt(issued),
+        "expires_at": _fmt(issued + dt.timedelta(days=days)),
+        "root_key_id": root_key_id,
+    }
+    cert_bytes = _compact(cert)
+    return CERT_PREFIX + b64u_encode(cert_bytes) + "." + b64u_encode(root_key.sign(CERT_DOMAIN + cert_bytes))
+
+
+def verify_cert(text: str, root_keys: dict[str, Ed25519PublicKey], at: dt.datetime) -> tuple[str, dict]:
+    """(result, certificate). Order: format -> root key known -> root signature -> valid at [at]."""
+    text = text.strip()
+    try:
+        if not text.startswith(CERT_PREFIX):
+            raise ValueError("no WAVECERT prefix")
+        body_b64, sig_b64 = text[len(CERT_PREFIX):].split(".")
+        cert_bytes = b64u_decode(body_b64)
+        signature = b64u_decode(sig_b64)
+        cert = json.loads(cert_bytes.decode("utf-8"))
+        if not isinstance(cert, dict) or any(f not in cert for f in CERT_FIELDS):
+            raise ValueError("missing fields")
+        if cert["schema"] != CERT_SCHEMA or cert["admin_key_alg"] != ADMIN_KEY_ALG:
+            raise ValueError("wrong schema or algorithm")
+        if not isinstance(cert["cert_id"], str) or not CERT_ID_RE.match(cert["cert_id"]):
+            raise ValueError("bad cert_id")
+        if not isinstance(cert["root_key_id"], str):
+            raise ValueError("bad root_key_id")
+        _check_place_id(cert["place_id"])
+        _check_name(cert["place_name"], "place name")
+        _check_name(cert["admin_name"], "admin name")
+        load_admin_public_key(cert["admin_public_key"])
+        issued, expires = _parse_time(cert["issued_at"]), _parse_time(cert["expires_at"])
+        if expires <= issued:
+            raise ValueError("expires_at must be after issued_at")
+    except (ValueError, TypeError, UnicodeDecodeError) as exc:
+        return MALFORMED, {"why": str(exc)}
+    root = root_keys.get(cert["root_key_id"])
+    if root is None:
+        return UNKNOWN_KEY, cert
+    if not verify_raw(root, signature, CERT_DOMAIN + cert_bytes):
+        return BAD_SIGNATURE, cert
+    if at < issued:
+        return NOT_YET_VALID, cert
+    if at > expires:
+        return EXPIRED, cert
+    return VALID, cert
 
 
 # ---------------------------------------------------------------------------
