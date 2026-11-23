@@ -248,8 +248,7 @@ private fun HomeHero(state: HomeUiState, onCheckWifi: () -> Unit, onDisconnectNo
                 }
                 Wavey(
                     mood = state.mood,
-                    size = waveySize,
-                    blink = true,
+                    size = waveySize, // the art blinks by itself
                     modifier = Modifier.offset(y = 6.dp),
                 )
             }
