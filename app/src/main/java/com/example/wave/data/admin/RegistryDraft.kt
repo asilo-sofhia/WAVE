@@ -65,6 +65,21 @@ data class RegistryDraft(
         blocked = blocked.filterNot { it.bssid == bssid },
     )
 
+    /** Takes all of a network's radios off whichever list they are on. */
+    fun removeAll(bssids: Collection<String>): RegistryDraft = copy(
+        approved = approved.filterNot { it.bssid in bssids },
+        blocked = blocked.filterNot { it.bssid in bssids },
+    )
+
+    /** Moves all of a network's radios to the block list (or changes their reason if already blocked). */
+    fun blockAll(bssids: Collection<String>, ssid: String, reason: String): RegistryDraft =
+        bssids.fold(this) { d, bssid -> d.block(bssid, ssid, reason) }
+
+    /** Sets the building of all of a network's approved radios. */
+    fun withBuilding(bssids: Collection<String>, building: String): RegistryDraft = copy(
+        approved = approved.map { if (it.bssid in bssids) it.copy(building = building.trim()) else it },
+    )
+
     /** Adds the campus provider; the "measure on campus" placeholder (ASN 0) goes away. */
     fun withCampusAsn(asn: CampusAsn): RegistryDraft {
         val real = campusAsns.filter { it.asn != 0 }

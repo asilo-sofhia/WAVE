@@ -104,10 +104,10 @@ fun SecondaryButton(
 }
 
 @Composable
-fun WaveTextButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun WaveTextButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = Blue700) {
     TextButton(
         onClick = onClick,
-        colors = ButtonDefaults.textButtonColors(contentColor = Blue700),
+        colors = ButtonDefaults.textButtonColors(contentColor = color),
         modifier = modifier.heightIn(min = MinTouch),
     ) {
         Text(text, style = MaterialTheme.typography.labelLarge)

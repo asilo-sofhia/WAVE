@@ -135,4 +135,28 @@ class RegistryDraftTest {
         listOf(-60, -72, -55).forEach { t.record("00:00:00:00:00:01", it) }
         assertEquals(-72..-55, t.range("00:00:00:00:00:01"))
     }
+
+    // ---- edits on a whole network (all its radios) ----
+    private val twoRadios = RegistryDraft.empty(1).approve(
+        listOf(surveyed("52:14:c1:c3:f8:c0", building = "Home"), surveyed("52:14:c1:c3:f8:c4", building = "Home")),
+    )
+
+    @Test
+    fun removeAllTakesEveryRadioOff() {
+        val d = twoRadios.removeAll(listOf("52:14:c1:c3:f8:c0", "52:14:c1:c3:f8:c4"))
+        assertTrue(d.approved.isEmpty())
+    }
+
+    @Test
+    fun withBuildingRenamesEveryRadio() {
+        val d = twoRadios.withBuilding(listOf("52:14:c1:c3:f8:c0", "52:14:c1:c3:f8:c4"), "  Library 2F ")
+        assertEquals(listOf("Library 2F", "Library 2F"), d.approved.map { it.building })
+    }
+
+    @Test
+    fun blockAllMovesEveryRadioToBlocked() {
+        val d = twoRadios.blockAll(listOf("52:14:c1:c3:f8:c0", "52:14:c1:c3:f8:c4"), "BATSTATEU-ICT", "Not ours")
+        assertTrue(d.approved.isEmpty())
+        assertEquals(listOf("Not ours", "Not ours"), d.blocked.map { it.reason })
+    }
 }

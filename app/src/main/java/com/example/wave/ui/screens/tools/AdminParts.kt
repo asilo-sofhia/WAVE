@@ -1,5 +1,12 @@
 package com.example.wave.ui.screens.tools
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import com.example.wave.ui.components.FitText
+import com.example.wave.ui.theme.Blue700
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,7 +35,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.wave.R
@@ -48,30 +54,36 @@ enum class AdminTab { APPROVED, BLOCKED }
 /** Feedback from the admin actions (provider detection, publishing, clearing). */
 data class AdminActionsUi(val detecting: Boolean = false, val message: String? = null)
 
-/** One approved or blocked access point, with a button to take it off the list. */
+/**
+ * One approved or blocked network (its radios grouped): Wi-Fi icon, name, details and decision, with an edit button.
+ * The whole row opens the edit sheet too.
+ */
 @Composable
-fun DraftRow(title: String, bssid: String, detail: String, status: DraftStatus, onRemove: () -> Unit) {
-    WaveCard(Modifier.fillMaxWidth(), color = Color.White, shape = RoundedCornerShape(18.dp), padding = 0.dp) {
+fun NetworkEntryRow(title: String, detail: String, status: DraftStatus, onEdit: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    WaveCard(Modifier.fillMaxWidth().clip(shape), color = Color.White, shape = shape, padding = 0.dp) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = Spacing.l, end = Spacing.xs, top = Spacing.s, bottom = Spacing.s),
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClickLabel = "Edit", role = Role.Button, onClick = onEdit)
+                .heightIn(min = 62.dp)
+                .padding(start = Spacing.l, end = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f)) {
+            Icon(painterResource(R.drawable.ic_wifi), contentDescription = null, tint = Blue700, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(Spacing.m))
+            Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
+                FitText(title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = Navy900)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                        color = Navy900,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
+                    Text(detail, style = MaterialTheme.typography.bodySmall, color = Slate600, modifier = Modifier.weight(1f, fill = false))
                     Spacer(Modifier.width(Spacing.s))
                     StatusPill(status.style(), compact = true)
                 }
-                Text(bssid, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace), color = Navy900)
-                Text(detail, style = MaterialTheme.typography.bodySmall, color = Slate600)
             }
-            IconButton(onClick = onRemove) {
-                Icon(painterResource(R.drawable.ic_close), contentDescription = "Remove $bssid from the list", tint = Slate600, modifier = Modifier.size(22.dp))
+            IconButton(onClick = onEdit) {
+                Box(Modifier.size(34.dp).border(2.dp, Blue700, RoundedCornerShape(9.dp)), contentAlignment = Alignment.Center) {
+                    Icon(painterResource(R.drawable.ic_edit), contentDescription = "Edit $title", tint = Blue700, modifier = Modifier.size(18.dp))
+                }
             }
         }
     }

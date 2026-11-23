@@ -15,6 +15,8 @@ import com.example.wave.ui.screens.tools.viewDetailsTab
 import com.example.wave.ui.screens.tools.adminApproveTargets
 import com.example.wave.ui.screens.tools.adminBlockTargets
 import com.example.wave.ui.screens.tools.approvalsFor
+import com.example.wave.ui.screens.tools.blockedGroups
+import com.example.wave.ui.screens.tools.approvedGroups
 import com.example.wave.ui.screens.tools.canApprove
 import com.example.wave.ui.screens.tools.draftStatus
 import com.example.wave.ui.screens.tools.reviewAps
@@ -116,5 +118,27 @@ class ManageRegistryStateTest {
         assertEquals(AdminTab.APPROVED, viewDetailsTab(DraftStatus.APPROVED))
         assertEquals(AdminTab.BLOCKED, viewDetailsTab(DraftStatus.BLOCKED))
         assertEquals(null, viewDetailsTab(DraftStatus.NEW))
+    }
+
+    /** Manage registry shows one row per network (its radios grouped), not one card per radio. */
+    @Test
+    fun listsAreGroupedPerNetwork() {
+        val d = RegistryDraft(
+            baseVersion = 1,
+            campusAsns = emptyList(),
+            approved = listOf(
+                ap("52:14:c1:c3:f8:c4", DraftSource.SURVEYED).copy(ssid = "PLDTHOME"),
+                ap("52:14:c1:c3:f8:c0", DraftSource.SURVEYED).copy(ssid = "PLDTHOME"),
+                ap("00:00:00:00:00:01", DraftSource.SURVEYED),
+            ),
+            blocked = listOf(BlockedAp("6a:00:00:00:00:09", "BSU Free WiFi", "Rogue"), BlockedAp("6a:00:00:00:00:08", "BSU Free WiFi", "Rogue")),
+        )
+        val approved = approvedGroups(d)
+        assertEquals(listOf("BATSTATEU-ICT", "PLDTHOME"), approved.map { it.ssid })
+        assertEquals(listOf("52:14:c1:c3:f8:c0", "52:14:c1:c3:f8:c4"), approved[1].bssids)
+        val blocked = blockedGroups(d)
+        assertEquals(1, blocked.size)
+        assertEquals(listOf("6a:00:00:00:00:08", "6a:00:00:00:00:09"), blocked.single().bssids)
+        assertEquals("Rogue", blocked.single().reason)
     }
 }

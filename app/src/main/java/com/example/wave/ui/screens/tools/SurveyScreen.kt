@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -82,7 +83,14 @@ class SurveyViewModel(
         viewModelScope.launch { draftStore.load(currentRegistry()) }
     }
 
-    fun remove(bssid: String) = viewModelScope.launch { draftStore.update { it.remove(bssid) } }
+    /** Edits act on a whole network: every one of its radios. */
+    fun removeAll(bssids: List<String>) = viewModelScope.launch { draftStore.update { it.removeAll(bssids) } }
+
+    fun blockAll(bssids: List<String>, ssid: String, reason: String) =
+        viewModelScope.launch { draftStore.update { it.blockAll(bssids, ssid, reason) } }
+
+    fun setBuilding(bssids: List<String>, building: String) =
+        viewModelScope.launch { draftStore.update { it.withBuilding(bssids, building) } }
 
     fun clear() = viewModelScope.launch {
         draftStore.clear(currentRegistry())
@@ -160,7 +168,9 @@ fun SurveyRoute(
         actions = actions,
         onBack = onBack,
         onOpenRadar = onOpenRadar,
-        onRemove = { vm.remove(it) },
+        onRemove = { vm.removeAll(it) },
+        onBlock = { bssids, ssid, reason -> vm.blockAll(bssids, ssid, reason) },
+        onSaveBuilding = { bssids, building -> vm.setBuilding(bssids, building) },
         onDetectProvider = vm::detectProvider,
         onPublish = { saveAs.launch("registry.json") },
         onClear = { vm.clear() },
@@ -176,14 +186,17 @@ fun ManageRegistryScreen(
     actions: AdminActionsUi,
     onBack: () -> Unit,
     onOpenRadar: () -> Unit,
-    onRemove: (bssid: String) -> Unit,
+    onRemove: (bssids: List<String>) -> Unit,
     onDetectProvider: () -> Unit,
     onPublish: () -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
     initialTab: AdminTab = AdminTab.APPROVED,
+    onBlock: (bssids: List<String>, ssid: String, reason: String) -> Unit = { _, _, _ -> },
+    onSaveBuilding: (bssids: List<String>, building: String) -> Unit = { _, _ -> },
 ) {
     var tab by rememberSaveable { mutableStateOf(initialTab) }
+    var editing by remember { mutableStateOf<EditingEntry?>(null) }
     val listState = rememberLazyListState()
     // Each tab starts at the top (otherwise the list keeps the other tab's scroll and hides the entries).
     LaunchedEffect(tab) { listState.scrollToItem(0) }
@@ -208,28 +221,30 @@ fun ManageRegistryScreen(
             }
             when (tab) {
                 AdminTab.APPROVED -> {
-                    val approved = draft.approved.sortedWith(compareBy({ it.ssid }, { it.bssid }))
-                    if (approved.isEmpty()) item(key = "empty-a") { EmptyNote("Nothing approved yet. Open the Wi-Fi radar, tap Scan on a network, then Approve.") }
-                    items(approved, key = { "a-" + it.bssid }) { ap ->
-                        DraftRow(
-                            title = ap.ssid,
-                            bssid = ap.bssid,
-                            detail = listOf(ap.band.label, "ch ${ap.channel}", ap.building.ifBlank { "no building" }).joinToString(" · "),
+                    val groups = approvedGroups(draft)
+                    if (groups.isEmpty()) item(key = "empty-a") { EmptyNote("Nothing approved yet. Open the Wi-Fi radar, tap Scan on a network, then Approve.") }
+                    items(groups, key = { "a-" + it.ssid + "|" + it.security }) { g ->
+                        NetworkEntryRow(
+                            title = g.ssid,
+                            detail = listOfNotNull(
+                                g.security.label,
+                                apCount(g.aps.size),
+                                g.aps.firstOrNull()?.building?.takeIf { it.isNotBlank() },
+                            ).joinToString(" · "),
                             status = DraftStatus.APPROVED,
-                            onRemove = { onRemove(ap.bssid) },
+                            onEdit = { editing = EditingEntry.Approved(g) },
                         )
                     }
                 }
                 AdminTab.BLOCKED -> {
-                    val blocked = draft.blocked.sortedBy { it.bssid }
-                    if (blocked.isEmpty()) item(key = "empty-b") { EmptyNote("Nothing blocked yet. Open the Wi-Fi radar, tap Scan on a network, then Block.") }
-                    items(blocked, key = { "b-" + it.bssid }) { b ->
-                        DraftRow(
-                            title = b.ssid.ifEmpty { "Hidden network" },
-                            bssid = b.bssid,
-                            detail = b.reason,
+                    val groups = blockedGroups(draft)
+                    if (groups.isEmpty()) item(key = "empty-b") { EmptyNote("Nothing blocked yet. Open the Wi-Fi radar, tap Scan on a network, then Block.") }
+                    items(groups, key = { "b-" + it.ssid }) { g ->
+                        NetworkEntryRow(
+                            title = g.ssid.ifEmpty { "Hidden network" },
+                            detail = "${apCount(g.bssids.size)} · ${g.reason}",
                             status = DraftStatus.BLOCKED,
-                            onRemove = { onRemove(b.bssid) },
+                            onEdit = { editing = EditingEntry.Blocked(g) },
                         )
                     }
                 }
@@ -240,7 +255,18 @@ fun ManageRegistryScreen(
             item(key = "actions") { AdminActionsCard(draft, actions, onDetectProvider, onPublish, onClear) }
         }
     }
+    editing?.let { entry ->
+        EditEntrySheet(
+            entry = entry,
+            onDismiss = { editing = null },
+            onSaveBuilding = { bssids, building -> onSaveBuilding(bssids, building); editing = null },
+            onBlock = { bssids, ssid, reason -> onBlock(bssids, ssid, reason); editing = null },
+            onRemove = { bssids -> onRemove(bssids); editing = null },
+        )
+    }
 }
+
+private fun apCount(n: Int) = if (n == 1) "1 access point" else "$n access points"
 
 // ---- Previews: approved, blocked, empty, loading ----
 

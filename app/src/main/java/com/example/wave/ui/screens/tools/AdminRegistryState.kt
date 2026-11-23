@@ -8,6 +8,7 @@ import com.example.wave.data.admin.surveyedRange
 import com.example.wave.domain.RegistryClassifier
 import com.example.wave.model.NetworkUi
 import com.example.wave.model.SecurityMapping
+import com.example.wave.model.SecurityType
 import com.example.wave.model.WifiBand
 import com.example.wave.model.isLocallyAdministered
 import com.example.wave.ui.components.StatusStyle
@@ -100,6 +101,27 @@ fun adminApproveTargets(aps: List<ReviewAp>): Set<String> = aps.filter { it.pres
 
 /** Admin Scan's Block: every radio of the network. */
 fun adminBlockTargets(aps: List<ReviewAp>): Set<String> = aps.map { it.bssid }.toSet()
+
+/** One approved network on Manage registry: its radios grouped (same name and security). */
+data class ApprovedGroup(val ssid: String, val security: SecurityType, val aps: List<DraftAp>) {
+    val bssids: List<String> get() = aps.map { it.bssid }
+}
+
+/** One blocked network on Manage registry: its radios grouped by the name they used. */
+data class BlockedGroup(val ssid: String, val bssids: List<String>, val reason: String)
+
+fun approvedGroups(draft: RegistryDraft): List<ApprovedGroup> =
+    draft.approved.groupBy { it.ssid to it.security }
+        .map { (key, aps) -> ApprovedGroup(key.first, key.second, aps.sortedBy { it.bssid }) }
+        .sortedWith(compareBy({ it.ssid }, { it.security.name }))
+
+fun blockedGroups(draft: RegistryDraft): List<BlockedGroup> =
+    draft.blocked.groupBy { it.ssid }
+        .map { (ssid, entries) ->
+            val reasons = entries.map { it.reason }.distinct()
+            BlockedGroup(ssid, entries.map { it.bssid }.sorted(), if (reasons.size == 1) reasons.single() else "Several reasons")
+        }
+        .sortedBy { it.ssid }
 
 /** What the Manage registry screen shows at the top. */
 data class DraftSummary(
