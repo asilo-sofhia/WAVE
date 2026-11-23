@@ -76,9 +76,83 @@ object WifiQr {
         return Check(QrResult.VALID, fields)
     }
 
-    /** The QR text with the Wi-Fi password replaced, for showing on screen. */
-    fun maskPassword(raw: String): String = Regex("(;P:)((?:\\\\.|[^;\\\\])*)(;)").replace(raw) { m ->
-        m.groupValues[1] + "••••••••" + m.groupValues[3]
+    /** The QR text with the Wi-Fi password replaced, for showing on screen (also when P is first or last). */
+    fun maskPassword(raw: String): String =
+        Regex("(?i)((?:^\\s*WIFI:|;)P:)((?:\\\\.|[^;\\\\])*)(;|$)").replace(raw) { m ->
+            m.groupValues[1] + "••••••••" + m.groupValues[3]
+        }
+
+    /**
+     * Best-effort reading of an ordinary (unsigned) Wi-Fi QR code, the way phone cameras read them, for codes the
+     * strict [verify] rejects: lowercase "wifi:", a missing final ";;", or unescaped ':' / ';' in the password.
+     * Codes carrying a WAVE signature are never read this way: they must pass [verify] exactly.
+     * Returns the fields (T normalized to WPA / SAE / nopass / WEP) or null when there's no network name.
+     */
+    fun readOrdinary(raw: String): Map<String, String>? {
+        val text = raw.trim()
+        if (!text.startsWith("WIFI:", ignoreCase = true) || text.contains(SIG_MARKER)) return null
+        val fields = linkedMapOf<String, String>()
+        var last: String? = null
+        for (segment in splitUnescaped(text.substring("WIFI:".length))) {
+            val m = Regex("^([A-Za-z][A-Za-z0-9-]*):(.*)$", RegexOption.DOT_MATCHES_ALL).find(segment)
+            val name = m?.groupValues?.get(1)?.uppercase()
+            if (m != null && name !in fields) {
+                fields[name!!] = m.groupValues[2]
+                last = name
+            } else if (last != null && segment.isNotEmpty()) {
+                fields[last] = fields.getValue(last) + ";" + segment // an unescaped ';' inside a value
+            }
+        }
+        val out = fields.mapValues { (_, v) -> unescapeLenient(v) }.toMutableMap()
+        out["T"]?.let { t ->
+            out["T"] = when (t.trim().uppercase()) {
+                "", "NOPASS", "NONE", "OPEN" -> "nopass"
+                "WPA", "WPA2", "WPA/WPA2", "WPA2/WPA3" -> "WPA"
+                "SAE", "WPA3" -> "SAE"
+                else -> t.trim().uppercase()
+            }
+        }
+        return out.takeIf { !it["S"].isNullOrEmpty() }
+    }
+
+    /** Splits on ';' not preceded by a backslash escape; empty segments (the final ";;") are dropped. */
+    private fun splitUnescaped(body: String): List<String> {
+        val parts = mutableListOf<String>()
+        val cur = StringBuilder()
+        var i = 0
+        while (i < body.length) {
+            val c = body[i]
+            if (c == '\\' && i + 1 < body.length) {
+                cur.append(c).append(body[i + 1])
+                i += 2
+                continue
+            }
+            if (c == ';') {
+                parts += cur.toString()
+                cur.clear()
+            } else {
+                cur.append(c)
+            }
+            i++
+        }
+        parts += cur.toString()
+        return parts.filter { it.isNotEmpty() }
+    }
+
+    /** Backslash escapes the next character; everything else (even ':') is taken as written. */
+    private fun unescapeLenient(value: String): String {
+        val out = StringBuilder()
+        var i = 0
+        while (i < value.length) {
+            if (value[i] == '\\' && i + 1 < value.length) {
+                out.append(value[i + 1])
+                i += 2
+            } else {
+                out.append(value[i])
+                i++
+            }
+        }
+        return out.toString()
     }
 
     /** Fields of an unsigned code, best effort (null if it doesn't parse). */

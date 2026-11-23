@@ -76,6 +76,7 @@ import com.example.wave.model.QrVerification
 import com.example.wave.model.Verdict
 import com.example.wave.model.WaveyMood
 import com.example.wave.model.signalQuality
+import com.example.wave.model.waveyMoodFor
 import com.example.wave.ui.components.DetailRow
 import com.example.wave.ui.components.FitText
 import com.example.wave.ui.components.PrimaryButton
@@ -176,7 +177,7 @@ class QrResultViewModel(
         viewModelScope.launch {
             setNearby(NearbyCheck.Checking)
             val named = scans.scanNearby().networks.filter { it.ssid == ssid }
-            setNearby(NearbyCheck.Done(QrJoinAdvice.of(v.result, ssid, named), named))
+            setNearby(NearbyCheck.Done(QrJoinAdvice.of(v.result, ssid, named, v.network?.security), named))
         }
     }
 
@@ -252,11 +253,17 @@ fun QrResultRoute(
 
 // ---- Presentation ----
 
-/** The hero's overall tone (CLAUDE.md: Verified = green, Warning = red, Unknown = yellow; never color alone). */
+/**
+ * The hero's overall tone. A Wi-Fi code is judged by its NETWORK (the access points nearby), not by whether the
+ * code is signed: Verified = green ✓, possible evil twin = red ⚠, Unknown = amber ?, still checking = amber clock.
+ * Only a code without Wi-Fi details is INVALID (red ✕). Never color alone: each has its own icon and title.
+ */
 private enum class Tone(val fg: Color, val bg: Color, @param:DrawableRes val badge: Int, val badgeLabel: String) {
-    VALID(VerifiedFg, VerifiedBg, R.drawable.ic_check, "valid"),
-    INVALID(WarningFg, WarningBg, R.drawable.ic_close, "invalid"),
-    UNVERIFIED(UnknownFg, UnknownBg, R.drawable.ic_help, "unverified"),
+    VERIFIED(VerifiedFg, VerifiedBg, R.drawable.ic_check, "verified network"),
+    WARNING(WarningFg, WarningBg, R.drawable.ic_warning, "warning"),
+    UNKNOWN(UnknownFg, UnknownBg, R.drawable.ic_help, "unknown network"),
+    PENDING(UnknownFg, UnknownBg, R.drawable.ic_schedule, "checking"),
+    INVALID(WarningFg, WarningBg, R.drawable.ic_close, "invalid QR code"),
 }
 
 /** One line in the result card: value color + icon tint follow its own status. */
@@ -265,55 +272,103 @@ private data class ResultRow(@param:DrawableRes val icon: Int, val label: String
 private val QrVerification.registryMatch: Boolean?
     get() = inRegistry ?: network?.let { it.verdict == Verdict.VERIFIED } // fake fixtures carry only the verdict
 
+private val QrVerification.ssid: String? get() = credentials?.ssid ?: network?.ssid
+
+/** A real Wi-Fi QR code: it names a network. Anything else (links, text, damaged codes) is an invalid QR. */
+private val QrVerification.isWifiCode: Boolean get() = result != QrResult.MALFORMED && !ssid.isNullOrEmpty()
+
 private fun QrResultUiState.Done.advice(): QrJoinAdvice? = (nearby as? NearbyCheck.Done)?.advice
 
 private fun toneOf(s: QrResultUiState.Done): Tone {
     val v = s.verification
-    val advice = s.advice()
-    return when {
-        advice == QrJoinAdvice.CodeUnsafe || advice is QrJoinAdvice.FakeNearby -> Tone.INVALID
-        v.result == QrResult.BAD_SIGNATURE || v.result == QrResult.EXPIRED -> Tone.INVALID
-        v.result == QrResult.VALID && v.registryMatch == true -> Tone.VALID
-        else -> Tone.UNVERIFIED
+    if (!v.isWifiCode) return Tone.INVALID
+    if (v.result == QrResult.BAD_SIGNATURE || v.result == QrResult.EXPIRED) return Tone.WARNING
+    return when (val n = s.nearby) {
+        NearbyCheck.Checking, NearbyCheck.NoLocation -> Tone.PENDING
+        is NearbyCheck.Done -> when (n.advice) {
+            is QrJoinAdvice.Connect -> Tone.VERIFIED
+            is QrJoinAdvice.FakeNearby -> Tone.WARNING
+            QrJoinAdvice.CodeUnsafe -> Tone.INVALID
+            QrJoinAdvice.NotInRange, is QrJoinAdvice.Unverified -> Tone.UNKNOWN
+        }
     }
 }
 
-private fun heroText(s: QrResultUiState.Done, tone: Tone): Pair<String, String> {
-    val v = s.verification
-    val ssid = v.network?.ssid ?: "this network"
+/** What a non-Wi-Fi code holds, in words. */
+private fun contentKind(raw: String): String {
+    val t = raw.trim()
     return when {
-        s.advice() is QrJoinAdvice.FakeNearby -> "Fake network nearby" to
-            "The access point using $ssid here isn't the real one. Don't connect."
-        tone == Tone.VALID -> "Valid Wi-Fi QR Code" to "The QR code is authenticated and matches the trusted registry."
-        v.result == QrResult.BAD_SIGNATURE -> "Invalid QR Code" to "Someone changed this code after it was signed. Don't use it."
-        v.result == QrResult.EXPIRED -> "Expired QR Code" to "It was valid until ${v.expiresAt}. Ask the ICT office for a new one."
-        v.result == QrResult.MALFORMED -> "Not a Wi-Fi QR Code" to "The code doesn't contain any Wi-Fi details."
-        else -> "Unverified QR Code" to "The QR code is not recognized or does not match the registry."
+        t.startsWith("http://", ignoreCase = true) || t.startsWith("https://", ignoreCase = true) -> "Website link"
+        t.startsWith("WIFI:", ignoreCase = true) -> "Damaged Wi-Fi code"
+        else -> "Text"
     }
 }
 
-private fun rowsOf(s: QrResultUiState.Done, tone: Tone): List<ResultRow> {
+private fun heroText(s: QrResultUiState.Done): Pair<String, String> {
     val v = s.verification
-    // Negative facts take the hero's tone (red when the code is unsafe, yellow when it's just unverified).
-    val bad = if (tone == Tone.INVALID) WarningFg else UnknownFg
+    val ssid = v.ssid ?: "this network"
+    if (!v.isWifiCode) {
+        return "Invalid QR Code" to when (contentKind(v.rawPayload)) {
+            "Website link" -> "This QR code is a website link, not a Wi-Fi network. WAVE only checks Wi-Fi QR codes."
+            "Damaged Wi-Fi code" -> "This looks like a Wi-Fi QR code, but WAVE can't read a network name from it."
+            else -> "This QR code doesn't contain any Wi-Fi details."
+        }
+    }
+    if (v.result == QrResult.BAD_SIGNATURE) return "Altered QR Code" to "Someone changed this code after it was signed. Don't connect."
+    if (v.result == QrResult.EXPIRED) return "Expired QR Code" to "It was valid until ${v.expiresAt}. Ask the ICT office for a new one."
+    return when (val n = s.nearby) {
+        NearbyCheck.Checking -> "Checking $ssid…" to "Looking at the access points nearby that use this name."
+        NearbyCheck.NoLocation -> "Location Needed" to "Allow location so WAVE can check the access points of $ssid nearby."
+        is NearbyCheck.Done -> when (val a = n.advice) {
+            is QrJoinAdvice.Connect -> "Verified Network" to "$ssid matches a registered access point nearby. It's safe to connect."
+            is QrJoinAdvice.FakeNearby -> "Possible Evil Twin" to when (a.why) {
+                QrJoinAdvice.FakeReason.REGISTRY -> "An access point using $ssid here doesn't match the school's records. Don't connect."
+                QrJoinAdvice.FakeReason.OPEN_COPY -> "The code says $ssid needs a password, but a copy nearby is open. Don't connect."
+                QrJoinAdvice.FakeReason.DOWNGRADE -> "The code says $ssid uses WPA3, but a copy nearby uses older WPA2. Don't connect."
+            }
+            is QrJoinAdvice.Unverified -> "Unknown Network" to
+                "$ssid is nearby, but it isn't on the school's registry, so WAVE can't confirm it's real."
+            QrJoinAdvice.NotInRange -> "Network Not Nearby" to "WAVE can't see $ssid from here. Move closer, then scan again."
+            QrJoinAdvice.CodeUnsafe -> "Invalid QR Code" to "This QR code doesn't contain any Wi-Fi details."
+        }
+    }
+}
+
+private fun rowsOf(s: QrResultUiState.Done): List<ResultRow> {
+    val v = s.verification
+    if (!v.isWifiCode) {
+        return listOf(
+            ResultRow(R.drawable.ic_qr, "Contains", contentKind(v.rawPayload), Navy900),
+            ResultRow(R.drawable.ic_wifi, "Wi-Fi details", "None", WarningFg),
+        )
+    }
+    // The network row carries the verdict; the signature is extra information (most real codes aren't signed).
+    val network = when {
+        v.result == QrResult.BAD_SIGNATURE || v.result == QrResult.EXPIRED -> "Not checked" to NeutralFg
+        else -> when (val n = s.nearby) {
+            NearbyCheck.Checking -> "Checking…" to UnknownFg
+            NearbyCheck.NoLocation -> "Location off" to NeutralFg
+            is NearbyCheck.Done -> when (n.advice) {
+                is QrJoinAdvice.Connect -> "Verified" to VerifiedFg
+                is QrJoinAdvice.FakeNearby -> "Possible evil twin" to WarningFg
+                is QrJoinAdvice.Unverified -> "Unknown" to UnknownFg
+                QrJoinAdvice.NotInRange -> "Not nearby" to UnknownFg
+                QrJoinAdvice.CodeUnsafe -> "Not checked" to NeutralFg
+            }
+        }
+    }
     val signature = when (v.result) {
-        QrResult.VALID -> "Valid" to VerifiedFg
-        QrResult.UNSIGNED -> "Not signed" to bad
-        QrResult.UNKNOWN_KEY -> "Unknown signer" to bad
-        QrResult.BAD_SIGNATURE -> "Not valid" to WarningFg
+        QrResult.VALID -> "Signed by WAVE" to VerifiedFg
+        QrResult.UNSIGNED -> "Not signed" to NeutralFg
+        QrResult.UNKNOWN_KEY -> "Unknown signer" to NeutralFg
+        QrResult.BAD_SIGNATURE -> "Altered" to WarningFg
         QrResult.EXPIRED -> "Expired" to WarningFg
         QrResult.MALFORMED -> "Unreadable" to WarningFg
     }
-    val registry = when (v.registryMatch) {
-        true -> "Matched" to VerifiedFg
-        false -> "Not found" to bad
-        null -> "No registry" to NeutralFg
-    }
-    // Mockup: three rows. What WAVE found nearby shows in the main button and in View Details.
     return listOf(
-        ResultRow(R.drawable.ic_wifi, "SSID", v.network?.ssid ?: "—", Navy900),
-        ResultRow(R.drawable.ic_shield_outline, "Signature", signature.first, signature.second),
-        ResultRow(R.drawable.ic_database, "Registry Match", registry.first, registry.second),
+        ResultRow(R.drawable.ic_wifi, "SSID", v.ssid ?: "—", Navy900),
+        ResultRow(R.drawable.ic_radar, "Network", network.first, network.second),
+        ResultRow(R.drawable.ic_shield_outline, "QR signature", signature.first, signature.second),
     )
 }
 
@@ -352,7 +407,7 @@ fun QrResultScreen(
                 verticalArrangement = Arrangement.spacedBy(Spacing.l),
             ) {
                 Wavey(WaveyMood.CURIOUS, size = 150.dp)
-                Text("Checking the QR code's signature…", style = MaterialTheme.typography.titleMedium, color = Navy900)
+                Text("Reading the QR code…", style = MaterialTheme.typography.titleMedium, color = Navy900)
                 CircularProgressIndicator()
             }
             is QrResultUiState.Done -> Done(state, onBack, onOpenTab, onOpenNetwork, onScanAgain, onOpenWifiSettings, onConnect)
@@ -373,21 +428,22 @@ private fun ColumnScope.Done(
 ) {
     val v = state.verification
     val tone = toneOf(state)
-    val (title, body) = heroText(state, tone)
+    val (title, body) = heroText(state)
     var detailsOpen by rememberSaveable { mutableStateOf(false) }
-    val ssid = v.credentials?.ssid ?: v.network?.ssid ?: "this network"
-    // HAPPY for a genuine code that matches the registry (team decision for this screen; the access point is
-    // still checked before "Connect"). A fake access point nearby is a network warning (UNCOMFORTABLE);
-    // any invalid or unverified code is SAD.
-    val mood = when {
-        tone == Tone.VALID -> WaveyMood.HAPPY
-        state.advice() is QrJoinAdvice.FakeNearby -> WaveyMood.UNCOMFORTABLE
-        else -> WaveyMood.SAD
+    val ssid = v.ssid ?: "this network"
+    // Same verdict moods as every other screen: Verified network = HAPPY, Unknown = CONFUSED, possible evil
+    // twin = SCARED. Still checking = CURIOUS. A code that can't be used (not Wi-Fi, altered, expired) = SAD.
+    val mood = when (tone) {
+        Tone.VERIFIED -> waveyMoodFor(Verdict.VERIFIED)
+        Tone.UNKNOWN -> waveyMoodFor(Verdict.UNKNOWN)
+        Tone.WARNING -> if (state.advice() is QrJoinAdvice.FakeNearby) waveyMoodFor(Verdict.WARNING) else WaveyMood.SAD
+        Tone.INVALID -> WaveyMood.SAD
+        Tone.PENDING -> WaveyMood.CURIOUS
     }
 
     // The hero takes all the height the rest doesn't need, so Wavey grows on tall phones and the page never scrolls.
     ResultHero(tone, mood, title, body, Modifier.weight(1f))
-    ResultCard(rowsOf(state, tone))
+    ResultCard(rowsOf(state))
     JoinStatusLine(ssid, state.join)
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
         Buttons(
@@ -538,6 +594,13 @@ private fun DetailsCard(s: QrResultUiState.Done) {
     }
     val rows = buildList {
         v.network?.let { add("Security" to it.security.label) }
+        add(
+            "School registry" to when (v.registryMatch) {
+                true -> "Listed"
+                false -> "Not listed"
+                null -> "Not loaded"
+            },
+        )
         add("Signer" to (v.signer ?: "None"))
         add("Valid until" to (v.expiresAt ?: "—"))
         add("Result code" to v.result.name)
@@ -613,7 +676,7 @@ private fun Buttons(
                 icon = R.drawable.ic_open_in_new,
                 loading = state.join == JoinStatus.Asking,
             )
-            advice == QrJoinAdvice.NotInRange && tone != Tone.INVALID ->
+            advice == QrJoinAdvice.NotInRange && tone == Tone.UNKNOWN ->
                 PrimaryButton("Scan again", onClick = onScanAgain, icon = R.drawable.ic_refresh)
             else -> PrimaryButton("View Details", onClick = onViewDetails, containerColor = Navy900)
         }
@@ -642,27 +705,41 @@ private fun done(result: QrResult, nearby: NearbyCheck) = QrResultUiState.Done(F
 @Composable
 private fun QrValidPreview() = PreviewOf(done(QrResult.VALID, NearbyCheck.Done(QrJoinAdvice.Connect(FakeFixtures.campus, null))))
 
+@Preview(showSystemUi = true, name = "Verified (ordinary unsigned code, verified AP nearby)")
+@Composable
+private fun QrUnsignedVerifiedPreview() =
+    PreviewOf(done(QrResult.UNSIGNED, NearbyCheck.Done(QrJoinAdvice.Connect(FakeFixtures.campus, null))))
+
 @Preview(showSystemUi = true, name = "Warning (changed code)")
 @Composable
 private fun QrChangedPreview() = PreviewOf(done(QrResult.BAD_SIGNATURE, NearbyCheck.Done(QrJoinAdvice.CodeUnsafe)))
 
-@Preview(showSystemUi = true, name = "Warning (fake network nearby)")
+@Preview(showSystemUi = true, name = "Warning (evil twin: fails registry)")
 @Composable
 private fun QrFakeNearbyPreview() = PreviewOf(done(QrResult.VALID, NearbyCheck.Done(QrJoinAdvice.FakeNearby(FakeFixtures.twin))))
+
+@Preview(showSystemUi = true, name = "Warning (evil twin: open copy of a protected network)")
+@Composable
+private fun QrOpenCopyPreview() = PreviewOf(
+    done(
+        QrResult.UNSIGNED,
+        NearbyCheck.Done(QrJoinAdvice.FakeNearby(FakeFixtures.library, QrJoinAdvice.FakeReason.OPEN_COPY)),
+    ),
+)
 
 @Preview(showSystemUi = true, name = "Warning (expired)")
 @Composable
 private fun QrExpiredPreview() = PreviewOf(done(QrResult.EXPIRED, NearbyCheck.Done(QrJoinAdvice.CodeUnsafe)))
 
-@Preview(showSystemUi = true, name = "Unknown (unsigned, unverified AP)")
+@Preview(showSystemUi = true, name = "Unknown (unsigned, unregistered AP)")
 @Composable
 private fun QrUnsignedPreview() = PreviewOf(done(QrResult.UNSIGNED, NearbyCheck.Done(QrJoinAdvice.Unverified(FakeFixtures.library))))
 
-@Preview(showSystemUi = true, name = "Unknown (unknown signer, not in range)")
+@Preview(showSystemUi = true, name = "Unknown (not in range)")
 @Composable
 private fun QrUnknownKeyPreview() = PreviewOf(done(QrResult.UNKNOWN_KEY, NearbyCheck.Done(QrJoinAdvice.NotInRange)))
 
-@Preview(showSystemUi = true, name = "Unknown (not a Wi-Fi code)")
+@Preview(showSystemUi = true, name = "Invalid (not a Wi-Fi code)")
 @Composable
 private fun QrMalformedPreview() = PreviewOf(done(QrResult.MALFORMED, NearbyCheck.Done(QrJoinAdvice.CodeUnsafe)))
 
