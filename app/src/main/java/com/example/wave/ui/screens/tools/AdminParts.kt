@@ -42,8 +42,8 @@ import com.example.wave.ui.theme.Navy900
 import com.example.wave.ui.theme.Slate600
 import com.example.wave.ui.theme.Spacing
 
-/** The three lists on the admin's Manage registry screen. */
-enum class AdminTab { SCANNED, APPROVED, BLOCKED }
+/** The two lists on the admin's Manage registry screen. */
+enum class AdminTab { APPROVED, BLOCKED }
 
 /** Feedback from the admin actions (provider detection, publishing, clearing). */
 data class AdminActionsUi(val detecting: Boolean = false, val message: String? = null)

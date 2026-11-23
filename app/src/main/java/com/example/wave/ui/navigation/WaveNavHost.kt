@@ -115,9 +115,9 @@ fun WaveNavHost(
             SurveyRoute(
                 container = container,
                 onBack = { nav.popBackStack() },
-                onNeedPermission = { nav.navigate(Routes.PERMISSION) },
+                onOpenRadar = { nav.navigate(Routes.RADAR) },
                 initialTab = entry.arguments?.getString(Routes.ARG_TAB)
-                    ?.let { name -> AdminTab.entries.firstOrNull { it.name == name } } ?: AdminTab.SCANNED,
+                    ?.let { name -> AdminTab.entries.firstOrNull { it.name == name } } ?: AdminTab.APPROVED,
             )
         }
         composable(
