@@ -21,6 +21,7 @@ import com.example.wave.ui.screens.scanqr.ScanQrRoute
 import com.example.wave.ui.screens.splash.SplashRoute
 import com.example.wave.ui.screens.tools.AdminAccessScreen
 import com.example.wave.ui.screens.tools.AdminScanRoute
+import com.example.wave.ui.screens.tools.AdminTab
 import com.example.wave.ui.screens.tools.NetworkToolsScreen
 import com.example.wave.ui.screens.tools.RadarRoute
 import com.example.wave.ui.screens.tools.SurveyRoute
@@ -95,6 +96,7 @@ fun WaveNavHost(
                 bssid = entry.arguments?.getString(Routes.ARG_BSSID).orEmpty(),
                 onBack = { nav.popBackStack() },
                 onOpenNetwork = { nav.navigate(Routes.adminScan(it)) },
+                onViewDetails = { tab -> nav.navigate(Routes.survey(tab)) },
             )
         }
         composable(Routes.ADMIN_ACCESS) {
@@ -102,15 +104,20 @@ fun WaveNavHost(
                 onBack = { nav.popBackStack() },
                 // The access page is replaced by Manage registry, so Back from it returns to Network tools.
                 onContinue = {
-                    nav.navigate(Routes.SURVEY) { popUpTo(Routes.NETWORK_TOOLS) }
+                    nav.navigate(Routes.survey()) { popUpTo(Routes.NETWORK_TOOLS) }
                 },
             )
         }
-        composable(Routes.SURVEY) {
+        composable(
+            Routes.SURVEY,
+            arguments = listOf(navArgument(Routes.ARG_TAB) { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) { entry ->
             SurveyRoute(
                 container = container,
                 onBack = { nav.popBackStack() },
                 onNeedPermission = { nav.navigate(Routes.PERMISSION) },
+                initialTab = entry.arguments?.getString(Routes.ARG_TAB)
+                    ?.let { name -> AdminTab.entries.firstOrNull { it.name == name } } ?: AdminTab.SCANNED,
             )
         }
         composable(

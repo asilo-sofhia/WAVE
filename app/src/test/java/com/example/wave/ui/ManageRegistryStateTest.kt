@@ -9,7 +9,9 @@ import com.example.wave.model.BlockedAp
 import com.example.wave.model.CampusAsn
 import com.example.wave.model.SecurityType
 import com.example.wave.model.WifiBand
+import com.example.wave.ui.screens.tools.AdminTab
 import com.example.wave.ui.screens.tools.DraftStatus
+import com.example.wave.ui.screens.tools.viewDetailsTab
 import com.example.wave.ui.screens.tools.adminApproveTargets
 import com.example.wave.ui.screens.tools.adminBlockTargets
 import com.example.wave.ui.screens.tools.approvalsFor
@@ -106,5 +108,13 @@ class ManageRegistryStateTest {
         assertEquals(setOf("8c:3b:ad:72:10:4f"), adminApproveTargets(rows))
         assertEquals(setOf("8c:3b:ad:72:10:4f", "6a:3f:00:11:22:9c"), adminBlockTargets(rows))
         assertTrue(adminApproveTargets(reviewAps(listOf(madeUp)) { null }).isEmpty())
+    }
+
+    /** Admin Scan: an approved or blocked network offers "View details", opening that tab of Manage registry. */
+    @Test
+    fun viewDetailsOpensTheMatchingTab() {
+        assertEquals(AdminTab.APPROVED, viewDetailsTab(DraftStatus.APPROVED))
+        assertEquals(AdminTab.BLOCKED, viewDetailsTab(DraftStatus.BLOCKED))
+        assertEquals(null, viewDetailsTab(DraftStatus.NEW))
     }
 }

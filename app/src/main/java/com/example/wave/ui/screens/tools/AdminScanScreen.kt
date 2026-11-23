@@ -124,7 +124,13 @@ class AdminScanViewModel(
 // ---- Route ----
 
 @Composable
-fun AdminScanRoute(container: AppContainer, bssid: String, onBack: () -> Unit, onOpenNetwork: (bssid: String) -> Unit) {
+fun AdminScanRoute(
+    container: AppContainer,
+    bssid: String,
+    onBack: () -> Unit,
+    onOpenNetwork: (bssid: String) -> Unit,
+    onViewDetails: (AdminTab) -> Unit,
+) {
     val vm = waveViewModel(key = "adminscan-$bssid") {
         AdminScanViewModel(
             container.scanRepository,
@@ -135,7 +141,7 @@ fun AdminScanRoute(container: AppContainer, bssid: String, onBack: () -> Unit, o
         )
     }
     val state by vm.state.collectAsStateWithLifecycle()
-    AdminScanScreen(state, onBack, onApprove = vm::approve, onBlock = vm::block, onOpenNetwork = onOpenNetwork)
+    AdminScanScreen(state, onBack, onApprove = vm::approve, onBlock = vm::block, onOpenNetwork = onOpenNetwork, onViewDetails = onViewDetails)
 }
 
 // ---- Screen ----
@@ -148,6 +154,7 @@ fun AdminScanScreen(
     onBlock: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenNetwork: (bssid: String) -> Unit = {},
+    onViewDetails: (AdminTab) -> Unit = {},
 ) {
     WaveScreen(title = "Admin Scan", onBack = onBack, modifier = modifier) {
         when (state) {
@@ -155,13 +162,19 @@ fun AdminScanScreen(
                 Text("This network is no longer in range. Scan again to see what's nearby.", style = MaterialTheme.typography.bodyLarge, color = Slate600)
                 PrimaryButton("Back to Wi-Fi radar", onClick = onBack)
             }
-            is AdminScanUiState.Loaded -> Loaded(state, onApprove, onBlock, onOpenNetwork)
+            is AdminScanUiState.Loaded -> Loaded(state, onApprove, onBlock, onOpenNetwork, onViewDetails)
         }
     }
 }
 
 @Composable
-private fun Loaded(state: AdminScanUiState.Loaded, onApprove: () -> Unit, onBlock: () -> Unit, onOpenNetwork: (String) -> Unit) {
+private fun Loaded(
+    state: AdminScanUiState.Loaded,
+    onApprove: () -> Unit,
+    onBlock: () -> Unit,
+    onOpenNetwork: (String) -> Unit,
+    onViewDetails: (AdminTab) -> Unit,
+) {
     val network = state.network
     val rows = reviewAps(state.accessPoints) { null }
     val status = draftStatus(state.draft, rows.map { it.bssid })
@@ -179,9 +192,18 @@ private fun Loaded(state: AdminScanUiState.Loaded, onApprove: () -> Unit, onBloc
 
     val canApproveNow = canApprove(network) && adminApproveTargets(rows).isNotEmpty()
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.fillMaxWidth().padding(top = Spacing.s)) {
-        PrimaryButton("Approve", onClick = onApprove, enabled = state.draft != null && canApproveNow, icon = R.drawable.ic_check)
-        SecondaryButton("Block", onClick = onBlock, enabled = state.draft != null, icon = R.drawable.ic_warning)
-        approveNote(network, rows)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Slate600) }
+        // Already decided: show the decision with a way to see it in Manage registry, instead of the button.
+        if (status == DraftStatus.APPROVED) {
+            PrimaryButton("Approved · View details", onClick = { onViewDetails(AdminTab.APPROVED) }, icon = R.drawable.ic_check)
+        } else {
+            PrimaryButton("Approve", onClick = onApprove, enabled = state.draft != null && canApproveNow, icon = R.drawable.ic_check)
+        }
+        if (status == DraftStatus.BLOCKED) {
+            SecondaryButton("Blocked · View details", onClick = { onViewDetails(AdminTab.BLOCKED) }, icon = R.drawable.ic_warning)
+        } else {
+            SecondaryButton("Block", onClick = onBlock, enabled = state.draft != null, icon = R.drawable.ic_warning)
+        }
+        if (status == DraftStatus.NEW) approveNote(network, rows)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Slate600) }
         state.message?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Navy900) }
         if (state.draft == null) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
     }
@@ -207,6 +229,16 @@ private fun PreviewOf(state: AdminScanUiState) = WAVETheme {
 @Composable
 private fun AdminScanNewPreview() = PreviewOf(
     AdminScanUiState.Loaded(FakeFixtures.campus, listOf(FakeFixtures.campus), RegistryDraft.empty(1)),
+)
+
+@Preview(showSystemUi = true, name = "Already approved")
+@Composable
+private fun AdminScanApprovedPreview() = PreviewOf(
+    AdminScanUiState.Loaded(
+        FakeFixtures.campus,
+        listOf(FakeFixtures.campus),
+        RegistryDraft.empty(1).approve(approvalsFor(FakeFixtures.campus, reviewAps(listOf(FakeFixtures.campus)) { null }, setOf(FakeFixtures.campus.bssid.lowercase()), "")),
+    ),
 )
 
 @Preview(showSystemUi = true, name = "Made-up address only")

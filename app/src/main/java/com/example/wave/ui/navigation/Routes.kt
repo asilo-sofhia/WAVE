@@ -3,6 +3,7 @@ package com.example.wave.ui.navigation
 import android.net.Uri
 import com.example.wave.R
 import com.example.wave.model.WarningReason
+import com.example.wave.ui.screens.tools.AdminTab
 
 /** Plain string routes (no serialization plugin needed). */
 object Routes {
@@ -17,8 +18,10 @@ object Routes {
     const val NETWORK_TOOLS = "networktools"
     const val RADAR = "radar"
     const val ADMIN_ACCESS = "adminaccess"
-    /** Manage registry: the campus admin's radar (after the admin gate). */
-    const val SURVEY = "survey"
+    /** Manage registry: the campus admin's radar (after the admin gate), optionally opened on one tab. */
+    const val ARG_TAB = "tab"
+    const val SURVEY = "survey?$ARG_TAB={$ARG_TAB}"
+    fun survey(tab: AdminTab? = null) = if (tab == null) "survey" else "survey?$ARG_TAB=${tab.name}"
 
     const val ARG_BSSID = "bssid"
     const val DETAIL = "detail/{$ARG_BSSID}"

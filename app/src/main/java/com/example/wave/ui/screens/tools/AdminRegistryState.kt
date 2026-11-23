@@ -88,6 +88,13 @@ fun approvalsFor(network: NetworkUi, aps: List<ReviewAp>, selected: Set<String>,
         )
     }
 
+/** Admin Scan: an approved or blocked network offers "View details", which opens this tab of Manage registry. */
+fun viewDetailsTab(status: DraftStatus): AdminTab? = when (status) {
+    DraftStatus.APPROVED -> AdminTab.APPROVED
+    DraftStatus.BLOCKED -> AdminTab.BLOCKED
+    DraftStatus.NEW -> null
+}
+
 /** Admin Scan's Approve: every radio except made-up addresses (WAVE warns about those even when registered). */
 fun adminApproveTargets(aps: List<ReviewAp>): Set<String> = aps.filter { it.preselected }.map { it.bssid }.toSet()
 

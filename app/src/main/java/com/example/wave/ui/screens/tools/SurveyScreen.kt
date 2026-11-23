@@ -256,7 +256,7 @@ class SurveyViewModel(
 // ---- Route ----
 
 @Composable
-fun SurveyRoute(container: AppContainer, onBack: () -> Unit, onNeedPermission: () -> Unit) {
+fun SurveyRoute(container: AppContainer, onBack: () -> Unit, onNeedPermission: () -> Unit, initialTab: AdminTab = AdminTab.SCANNED) {
     val vm = waveViewModel {
         SurveyViewModel(
             container.scanRepository,
@@ -287,6 +287,7 @@ fun SurveyRoute(container: AppContainer, onBack: () -> Unit, onNeedPermission: (
         onDetectProvider = vm::detectProvider,
         onPublish = { saveAs.launch("registry.json") },
         onClear = { vm.clear() },
+        initialTab = initialTab,
     )
 }
 
@@ -308,9 +309,10 @@ fun SurveyScreen(
     onDetectProvider: () -> Unit = {},
     onPublish: () -> Unit = {},
     onClear: () -> Unit = {},
+    initialTab: AdminTab = AdminTab.SCANNED,
 ) {
     var reviewing by remember { mutableStateOf<NearbyRow?>(null) }
-    var tab by rememberSaveable { mutableStateOf(AdminTab.SCANNED) }
+    var tab by rememberSaveable { mutableStateOf(initialTab) }
     Column(modifier.fillMaxSize()) {
         WaveTopBar(
             title = "Manage registry",
