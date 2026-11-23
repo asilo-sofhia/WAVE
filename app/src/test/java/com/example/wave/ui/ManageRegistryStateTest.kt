@@ -10,6 +10,8 @@ import com.example.wave.model.CampusAsn
 import com.example.wave.model.SecurityType
 import com.example.wave.model.WifiBand
 import com.example.wave.ui.screens.tools.DraftStatus
+import com.example.wave.ui.screens.tools.adminApproveTargets
+import com.example.wave.ui.screens.tools.adminBlockTargets
 import com.example.wave.ui.screens.tools.approvalsFor
 import com.example.wave.ui.screens.tools.canApprove
 import com.example.wave.ui.screens.tools.draftStatus
@@ -93,5 +95,16 @@ class ManageRegistryStateTest {
         assertFalse(empty.canExport)
         assertTrue(empty.isEmpty)
         assertEquals(1, empty.nextVersion)
+    }
+
+    /** Admin Scan: Approve skips made-up addresses (WAVE always warns about them); Block takes every radio. */
+    @Test
+    fun adminScanTargets() {
+        val real = FakeFixtures.campus.copy(bssid = "8C:3B:AD:72:10:4F")
+        val madeUp = FakeFixtures.campus.copy(bssid = "6a:3f:00:11:22:9c")
+        val rows = reviewAps(listOf(real, madeUp)) { null }
+        assertEquals(setOf("8c:3b:ad:72:10:4f"), adminApproveTargets(rows))
+        assertEquals(setOf("8c:3b:ad:72:10:4f", "6a:3f:00:11:22:9c"), adminBlockTargets(rows))
+        assertTrue(adminApproveTargets(reviewAps(listOf(madeUp)) { null }).isEmpty())
     }
 }

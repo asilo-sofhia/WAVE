@@ -20,6 +20,7 @@ import com.example.wave.ui.screens.qrresult.QrResultRoute
 import com.example.wave.ui.screens.scanqr.ScanQrRoute
 import com.example.wave.ui.screens.splash.SplashRoute
 import com.example.wave.ui.screens.tools.AdminAccessScreen
+import com.example.wave.ui.screens.tools.AdminScanRoute
 import com.example.wave.ui.screens.tools.NetworkToolsScreen
 import com.example.wave.ui.screens.tools.RadarRoute
 import com.example.wave.ui.screens.tools.SurveyRoute
@@ -81,8 +82,19 @@ fun WaveNavHost(
             RadarRoute(
                 container = container,
                 onBack = { nav.popBackStack() },
-                onOpenNetwork = { nav.navigate(Routes.detail(it)) },
+                onOpenNetwork = { nav.navigate(Routes.adminScan(it)) },
                 onNeedPermission = { nav.navigate(Routes.PERMISSION) },
+            )
+        }
+        composable(
+            Routes.ADMIN_SCAN,
+            arguments = listOf(navArgument(Routes.ARG_BSSID) { type = NavType.StringType }),
+        ) { entry ->
+            AdminScanRoute(
+                container = container,
+                bssid = entry.arguments?.getString(Routes.ARG_BSSID).orEmpty(),
+                onBack = { nav.popBackStack() },
+                onOpenNetwork = { nav.navigate(Routes.adminScan(it)) },
             )
         }
         composable(Routes.ADMIN_ACCESS) {

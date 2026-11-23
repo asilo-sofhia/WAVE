@@ -24,6 +24,10 @@ object Routes {
     const val DETAIL = "detail/{$ARG_BSSID}"
     fun detail(bssid: String) = "detail/${Uri.encode(bssid)}"
 
+    /** The admin's view of a network from the Wi-Fi radar (no registry checks; Approve / Block). */
+    const val ADMIN_SCAN = "adminscan/{$ARG_BSSID}"
+    fun adminScan(bssid: String) = "adminscan/${Uri.encode(bssid)}"
+
     const val ARG_PAYLOAD = "payload"
     const val QR_RESULT = "qrresult?$ARG_PAYLOAD={$ARG_PAYLOAD}"
     fun qrResult(payload: String) = "qrresult?$ARG_PAYLOAD=${Uri.encode(payload)}"
