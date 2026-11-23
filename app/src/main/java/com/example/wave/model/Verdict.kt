@@ -25,4 +25,8 @@ enum class WarningReason(val title: String, val explanation: String) {
         "Unexpected internet provider",
         "Your traffic leaves through a provider the real network doesn't use.",
     ),
+    BLOCKED_BY_ADMIN(
+        "Blocked by campus admin",
+        "The campus admin marked this access point as not theirs.",
+    ),
 }

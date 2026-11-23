@@ -109,6 +109,49 @@ def test_registry_validation_catches_typos(old, new, needle):
     assert any(needle in e.lower() for e in errors), errors
 
 
+
+# ---- optional "blocked" list (access points the campus admin marked as not theirs) ----
+def _with_blocked(blocked):
+    reg = json.loads((ROOT / "registry" / "registry.json").read_text())
+    reg["blocked"] = blocked
+    return json.dumps(reg).encode()
+
+
+def test_blocked_is_optional():
+    _, errors, _ = ws.validate_registry((ROOT / "registry" / "registry.json").read_bytes())
+    assert errors == []
+
+
+def test_valid_blocked_list():
+    _, errors, _ = ws.validate_registry(_with_blocked([{"bssid": "6a:3f:00:11:22:9c", "ssid": "BSU Free WiFi", "reason": "rogue hotspot"}]))
+    assert errors == []
+
+
+def test_blocked_bad_bssid_is_error():
+    _, errors, _ = ws.validate_registry(_with_blocked([{"bssid": "6A:3F:00:11:22:9C", "ssid": "x", "reason": "r"}]))
+    assert any("blocked[0]" in e for e in errors), errors
+
+
+def test_blocked_duplicate_is_error():
+    entry = {"bssid": "6a:3f:00:11:22:9c", "ssid": "x", "reason": "r"}
+    _, errors, _ = ws.validate_registry(_with_blocked([entry, dict(entry)]))
+    assert any("blocked[1]" in e and "duplicate" in e for e in errors), errors
+
+
+def test_blocked_overlapping_aps_is_error():
+    _, errors, _ = ws.validate_registry(_with_blocked([{"bssid": "00:00:5e:00:53:01", "ssid": "x", "reason": "r"}]))
+    assert any("blocked[0]" in e and "networks[0].aps[0]" in e for e in errors), errors
+
+
+def test_blocked_missing_reason_is_error():
+    _, errors, _ = ws.validate_registry(_with_blocked([{"bssid": "6a:3f:00:11:22:9c", "ssid": "x"}]))
+    assert any("blocked[0].reason" in e for e in errors), errors
+
+
+def test_blocked_must_be_a_list():
+    _, errors, _ = ws.validate_registry(_with_blocked({"bssid": "6a:3f:00:11:22:9c"}))
+    assert any(e.startswith("blocked") for e in errors), errors
+
 def test_locally_administered_detection():
     assert ws.is_locally_administered("32:12:e8:5c:38:d8")  # the home hotspot twin
     assert not ws.is_locally_administered("d8:42:f7:78:c8:0e")  # the real router

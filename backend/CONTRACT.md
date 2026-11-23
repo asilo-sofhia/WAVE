@@ -50,6 +50,9 @@ The app verifies the **raw downloaded bytes** first and only then parses JSON. N
         }
       ]
     }
+  ],
+  "blocked": [
+    { "bssid": "6a:3f:00:11:22:9c", "ssid": "BSU Free WiFi", "reason": "Rogue hotspot seen in the canteen" }
   ]
 }
 ```
@@ -61,6 +64,7 @@ The app verifies the **raw downloaded bytes** first and only then parses JSON. N
 | `key_id` | string | Which key signed it. Must match the `.sig` file's key. |
 | `issued_at` / `expires_at` | ISO-8601 UTC | App treats an expired registry as stale: still usable offline, but shows "registry out of date" and tries to re-sync. |
 | `campus_asns` | list | ASNs the campus traffic legitimately exits through. Filled after the campus visit. |
+| `blocked` | list, **optional** | Access points the campus admin marked as **not theirs** (`bssid` lowercase, `ssid` as seen, `reason`). Phones show them as **Warning: "Blocked by campus admin"**, whatever name they use. A BSSID can't be both in `blocked` and in `networks[].aps`. Missing = empty. |
 | `networks[].ssid` | string | Exact SSID, case-sensitive. |
 | `networks[].security` | enum | `OPEN`, `WPA2-PSK`, `WPA3-SAE`, `WPA2-WPA3` (transition mode). |
 | `aps[].bssid` | string | Lowercase, colon-separated `xx:xx:xx:xx:xx:xx`. One entry **per radio** (a dual-band AP has two). |

@@ -3,6 +3,7 @@ package com.example.wave.ui.navigation
 import android.net.Uri
 import com.example.wave.R
 import com.example.wave.model.WarningReason
+import com.example.wave.ui.screens.tools.AdminTab
 
 /** Plain string routes (no serialization plugin needed). */
 object Routes {
@@ -17,11 +18,18 @@ object Routes {
     const val NETWORK_TOOLS = "networktools"
     const val RADAR = "radar"
     const val ADMIN_ACCESS = "adminaccess"
-    const val SURVEY = "survey"
+    /** Manage registry: the admin's Approved and Blocked lists (after the admin gate), optionally on one tab. */
+    const val ARG_TAB = "tab"
+    const val SURVEY = "survey?$ARG_TAB={$ARG_TAB}"
+    fun survey(tab: AdminTab? = null) = if (tab == null) "survey" else "survey?$ARG_TAB=${tab.name}"
 
     const val ARG_BSSID = "bssid"
     const val DETAIL = "detail/{$ARG_BSSID}"
     fun detail(bssid: String) = "detail/${Uri.encode(bssid)}"
+
+    /** The admin's view of a network from the Wi-Fi radar (no registry checks; Approve / Block). */
+    const val ADMIN_SCAN = "adminscan/{$ARG_BSSID}"
+    fun adminScan(bssid: String) = "adminscan/${Uri.encode(bssid)}"
 
     const val ARG_PAYLOAD = "payload"
     const val QR_RESULT = "qrresult?$ARG_PAYLOAD={$ARG_PAYLOAD}"

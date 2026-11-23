@@ -18,9 +18,14 @@ data class Registry(
     val expiresAt: Instant,
     val campusAsns: List<CampusAsn>,
     val networks: List<RegistryNetwork>,
+    /** Access points the campus admin marked as not theirs (CONTRACT §2, optional). Shown as WARNING by any name. */
+    val blocked: List<BlockedAp> = emptyList(),
 )
 
 data class CampusAsn(val asn: Int, val name: String)
+
+/** One blocked access point: its address, the name it was seen with, and why the admin blocked it. */
+data class BlockedAp(val bssid: String, val ssid: String, val reason: String)
 
 data class RegistryNetwork(
     /** Exact SSID, case-sensitive. */

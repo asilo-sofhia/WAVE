@@ -85,9 +85,11 @@ fun SecondaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     @DrawableRes icon: Int? = null,
+    enabled: Boolean = true,
 ) {
     OutlinedButton(
         onClick = onClick,
+        enabled = enabled,
         shape = WaveShapes.pill,
         border = BorderStroke(1.5.dp, Divider),
         colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = Blue700),
@@ -102,10 +104,10 @@ fun SecondaryButton(
 }
 
 @Composable
-fun WaveTextButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun WaveTextButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = Blue700) {
     TextButton(
         onClick = onClick,
-        colors = ButtonDefaults.textButtonColors(contentColor = Blue700),
+        colors = ButtonDefaults.textButtonColors(contentColor = color),
         modifier = modifier.heightIn(min = MinTouch),
     ) {
         Text(text, style = MaterialTheme.typography.labelLarge)

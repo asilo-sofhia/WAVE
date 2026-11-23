@@ -6,6 +6,7 @@ import com.example.wave.data.wifi.bandForFrequency
 import com.example.wave.data.wifi.channelForFrequency
 import com.example.wave.data.wifi.normalizeBssid
 import com.example.wave.data.wifi.securityFromCapabilities
+import com.example.wave.model.BlockedAp
 import com.example.wave.model.CheckKind
 import com.example.wave.model.CheckOutcome
 import com.example.wave.model.NetworkUi
@@ -143,5 +144,50 @@ class RegistryClassifierTest {
             listOf(FakeFixtures.campus, FakeFixtures.twin, FakeFixtures.library, FakeFixtures.lab),
             sorted,
         )
+    }
+
+    // ---- campus block list ----
+    private val blockedRegistry = registry.copy(
+        blocked = listOf(BlockedAp("6a:3f:00:11:22:9c", "BSU Free WiFi", "Rogue hotspot")),
+    )
+
+    @Test
+    fun blockedBssidIsWarningWhateverTheName() {
+        val otherName = classifier.classify(obs(ssid = "BSU Free WiFi", bssid = "6a:3f:00:11:22:9c"), blockedRegistry)
+        assertEquals(Verdict.WARNING, otherName.verdict)
+        assertTrue(WarningReason.BLOCKED_BY_ADMIN in otherName.reasons)
+        assertEquals(CheckOutcome.FAILED, otherName.outcome(CheckKind.BLOCK_LIST))
+
+        val campusName = classifier.classify(obs(ssid = "BSU-ICT-TESTLAB", bssid = "6a:3f:00:11:22:9c"), blockedRegistry)
+        assertEquals(Verdict.WARNING, campusName.verdict)
+        assertTrue(WarningReason.BLOCKED_BY_ADMIN in campusName.reasons)
+        assertTrue(WarningReason.UNREGISTERED_BSSID in campusName.reasons)
+    }
+
+    @Test
+    fun notBlockedBehavesAsBefore() {
+        val real = classifier.classify(obs(), blockedRegistry)
+        assertEquals(Verdict.VERIFIED, real.verdict)
+        assertTrue(real.checks.none { it.kind == CheckKind.BLOCK_LIST })
+        val cafe = classifier.classify(obs(ssid = "Cafe", bssid = "00:11:22:33:44:55"), blockedRegistry)
+        assertEquals(Verdict.UNKNOWN, cafe.verdict)
+    }
+
+    /** An access point the campus admin approved passes even with a made-up address (mesh and some campus APs use them). */
+    @Test
+    fun approvedMadeUpAddressIsVerified() {
+        val withMesh = registry.copy(
+            networks = listOf(
+                registry.networks.single().copy(
+                    aps = registry.networks.single().aps + RegistryAp("52:14:c1:c3:f8:c4", WifiBand.GHZ_5, 100, "Home", -85, -25),
+                ),
+            ),
+        )
+        val n = classifier.classify(obs(bssid = "52:14:c1:c3:f8:c4", freq = 5500, rssi = -57), withMesh)
+        assertEquals(Verdict.VERIFIED, n.verdict)
+        assertEquals(CheckOutcome.PASSED, n.outcome(CheckKind.HARDWARE_ADDRESS))
+        // A made-up address that is NOT on the list still warns.
+        val twin = classifier.classify(obs(bssid = "52:14:c1:c3:f8:99"), withMesh)
+        assertTrue(WarningReason.LOCALLY_ADMINISTERED in twin.reasons)
     }
 }
