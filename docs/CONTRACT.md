@@ -179,3 +179,59 @@ App logic: the check runs only on networks the registry already marks **Verified
 | `reason` | `UNREGISTERED_BSSID`, `LOCALLY_ADMINISTERED`, `SECURITY_MISMATCH`, `RSSI_OUT_OF_RANGE`, `EXIT_ASN_MISMATCH`, … |
 
 Export as CSV for the evaluation metrics.
+
+---
+
+## 6. Admin certificates (place admins)
+A **place admin** (e.g. the BatStateU IT office, a mall) publishes their place's registry from their phone. The WAVE owner certifies each admin once with the **root key**:
+
+```
+wave-root-2026 (Ed25519, offline on the owner's laptop; public key in the app and on the server)
+  └─ admin certificate: "this phone key may sign for place <place_id> until <date>"
+       └─ the admin's phone key (P-256, Android Keystore) signs that place's registry (§7)
+```
+
+**Enrolment request** (shared by the admin's phone as text): `WAVEREQ:1:` + base64url of
+```json
+{ "admin_name": "Ana Cruz", "place_id": "batstateu", "admin_key_alg": "ES256", "admin_public_key": "<base64url SPKI DER, P-256>" }
+```
+
+**Certificate** (given back as a QR): `WAVECERT:1:<cert_b64url>.<signature_b64url>`. The signature is Ed25519 by the root over `"WAVE-CERT-v1\n"` + the exact certificate bytes (compact JSON, sorted keys; never re-serialized to verify):
+```json
+{
+  "schema": "wave-admin-cert/1",
+  "cert_id": "3f9a1c0d2b7e4a51",
+  "place_id": "batstateu",
+  "place_name": "Batangas State University",
+  "admin_name": "Ana Cruz",
+  "admin_key_alg": "ES256",
+  "admin_public_key": "<base64url SPKI DER, P-256>",
+  "issued_at": "2026-11-24T00:00:00Z",
+  "expires_at": "2027-11-24T00:00:00Z",
+  "root_key_id": "wave-root-2026"
+}
+```
+
+| Field | Rule |
+|---|---|
+| `place_id` | `^[a-z0-9][a-z0-9-]{0,31}$`; the certificate is only valid for this place |
+| `cert_id` | 16 lowercase hex characters, random |
+| `admin_key_alg` | always `ES256` (ECDSA P-256 + SHA-256) |
+| times | ISO UTC with `Z`; `expires_at` after `issued_at` |
+
+**Results:** `VALID`, `MALFORMED`, `UNKNOWN_KEY` (root not trusted), `BAD_SIGNATURE`, `NOT_YET_VALID`, `EXPIRED`, checked in that order.
+
+## 7. Place registry packages
+A place registry is a §2 registry plus `"place_id"`. Its `key_id` is the signing certificate's `cert_id`. The admin's phone key signs `"WAVE-REGISTRY-v1\n"` + the raw registry bytes (ECDSA P-256, SHA-256, DER signature). It is published as one package:
+```json
+{ "place_id": "batstateu", "registry_b64url": "...", "signature_b64url": "...", "cert": "WAVECERT:1:..." }
+```
+
+**A package is valid only if all of these hold, checked in this order:**
+1. The registry is a valid §2 registry with a `place_id`. Otherwise `MALFORMED`.
+2. The certificate is `VALID` (§6) **at the registry's `issued_at`**. Otherwise its result.
+3. The certificate's, the package's and the registry's `place_id` are the same. Otherwise `WRONG_PLACE`.
+4. The registry's `key_id` equals the certificate's `cert_id`. Otherwise `MALFORMED`.
+5. The registry signature verifies with the certificate's `admin_public_key`. Otherwise `BAD_SIGNATURE`.
+
+**Later phases** add: the server stores packages and refuses lower versions per place; phones check every place's package and merge them; a revocation list signed by the root (by `cert_id`).

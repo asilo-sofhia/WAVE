@@ -45,7 +45,7 @@ class WifiQrTest {
     private val today: LocalDate = LocalDate.parse(Regex("\"qr_today\"\\s*:\\s*\"(\\d{8})\"").find(vectors)!!.groupValues[1]
         .let { "${it.substring(0, 4)}-${it.substring(4, 6)}-${it.substring(6)}" })
 
-    private val cases: List<String> = vectors.substringAfter("\"qr_cases\"").let { section ->
+    private val cases: List<String> = vectors.substringAfter("\"qr_cases\"").substringBefore("\"cert_cases\"").let { section ->
         Regex("\\{(?:[^{}\"]|\"(?:[^\"\\\\]|\\\\.)*\")*\\}").findAll(section).map { it.value }.toList()
     }
 

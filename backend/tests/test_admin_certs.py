@@ -201,3 +201,52 @@ def test_registry_place_id_optional_for_old_lists():
     _, errors, _ = ws.validate_registry(json.dumps(reg).encode())
     assert any("place_id" in e for e in errors)
 
+# ---------------- Task 3: command line and test vectors ----------------
+def _run(capsys, *argv):
+    try:
+        ws.main(list(argv))
+        code = 0
+    except SystemExit as exc:
+        code = exc.code
+    out = capsys.readouterr()
+    return code, out.out.strip(), out.err
+
+
+def test_cli_full_flow(tmp_path, capsys):
+    keys, out = tmp_path / "keys", tmp_path / "out"
+    assert _run(capsys, "keygen", "--key-id", "wave-root-test", "--out", str(keys), "--no-passphrase")[0] == 0
+    code, request, err = _run(capsys, "admin-request", "--name", "Ana Cruz", "--place", "batstateu", "--out-dir", str(keys))
+    assert code == 0 and request.startswith("WAVEREQ:1:")
+    admin_pem = next(keys.glob("admin-batstateu-*.private.pem"))
+    code, cert, _ = _run(capsys, "certify-admin", "--request", request, "--place", "batstateu",
+                         "--place-name", "Batangas State University", "--days", "365",
+                         "--key", str(keys / "wave-root-test.private.pem"), "--png", str(out / "cert.png"))
+    assert code == 0 and cert.startswith("WAVECERT:1:") and (out / "cert.png").exists()
+    code, text, _ = _run(capsys, "verify-cert", cert, "--pub", str(keys / "wave-root-test.public.json"))
+    assert code == 0 and "VALID" in text
+
+    issued = (dt.datetime.now(UTC) + dt.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    reg = tmp_path / "batstateu.json"
+    reg.write_bytes(_place_registry("batstateu", _cert_id(cert), issued=issued, expires="2099-01-01T00:00:00Z"))
+    pkg = tmp_path / "package.json"
+    code, _, err = _run(capsys, "sign-place-registry", str(reg), "--admin-key", str(admin_pem), "--cert", cert, "--out", str(pkg))
+    assert code == 0, err
+    code, text, _ = _run(capsys, "verify-package", str(pkg), "--pub", str(keys / "wave-root-test.public.json"))
+    assert code == 0 and "VALID" in text and "batstateu" in text
+
+
+def test_cli_certify_refuses_other_place(tmp_path, capsys):
+    keys = tmp_path / "keys"
+    _run(capsys, "keygen", "--key-id", "wave-root-test", "--out", str(keys), "--no-passphrase")
+    _, request, _ = _run(capsys, "admin-request", "--name", "Ana", "--place", "batstateu", "--out-dir", str(keys))
+    code, _, err = _run(capsys, "certify-admin", "--request", request, "--place", "smmall", "--place-name", "SM Mall",
+                        "--key", str(keys / "wave-root-test.private.pem"))
+    assert code == 2 and "batstateu" in err
+
+
+def test_test_vectors_have_cert_and_package_cases():
+    v = ws.make_test_vectors()  # also self-checks every case
+    assert {c["expect"] for c in v["cert_cases"]} >= {ws.VALID, ws.BAD_SIGNATURE, ws.UNKNOWN_KEY, ws.EXPIRED, ws.NOT_YET_VALID, ws.MALFORMED}
+    assert {c["expect"] for c in v["package_cases"]} >= {ws.VALID, ws.WRONG_PLACE, ws.BAD_SIGNATURE, ws.EXPIRED, ws.MALFORMED}
+    assert v["domains"]["cert"] == ws.CERT_DOMAIN.decode()
+
