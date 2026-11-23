@@ -29,7 +29,7 @@ import secrets
 import sys
 from pathlib import Path
 
-from cryptography.exceptions import InvalidSignature
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -212,7 +212,7 @@ def validate_registry(data: bytes) -> tuple[dict, list[str], list[str]]:
     warnings: list[str] = []
     try:
         reg = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError and huge ints
         return {}, [f"not valid UTF-8 JSON: {exc}"], []
     if not isinstance(reg, dict):
         return {}, ["top level must be a JSON object"], []
@@ -257,7 +257,7 @@ def validate_registry(data: bytes) -> tuple[dict, list[str], list[str]]:
         ssid = net.get("ssid")
         if not isinstance(ssid, str) or not ssid or len(ssid.encode("utf-8")) > 32:
             errors.append(f"{where}.ssid: 1-32 bytes required")
-        if net.get("security") not in SECURITY_VALUES:
+        if not isinstance(net.get("security"), str) or net.get("security") not in SECURITY_VALUES:
             errors.append(f"{where}.security: must be one of {sorted(SECURITY_VALUES)}")
         aps = net.get("aps")
         if not isinstance(aps, list) or not aps:
@@ -279,7 +279,7 @@ def validate_registry(data: bytes) -> tuple[dict, list[str], list[str]]:
                     warnings.append(
                         f"{aw}.bssid {bssid} is locally administered - OK only if the real AP really uses it"
                     )
-            if ap.get("band") not in BAND_VALUES:
+            if not isinstance(ap.get("band"), str) or ap.get("band") not in BAND_VALUES:
                 errors.append(f"{aw}.band: must be one of {sorted(BAND_VALUES)}")
             ch = ap.get("channel")
             if not isinstance(ch, int) or ch <= 0:
@@ -564,7 +564,7 @@ def admin_public_key_b64(pub: ec.EllipticCurvePublicKey) -> str:
 def load_admin_public_key(text: str) -> ec.EllipticCurvePublicKey:
     try:
         key = serialization.load_der_public_key(b64u_decode(text))
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, UnsupportedAlgorithm) as exc:
         raise ValueError(f"admin public key is not a valid key ({exc})") from exc
     if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256R1):
         raise ValueError("admin public key must be P-256 (ES256)")
@@ -666,8 +666,8 @@ def verify_cert(text: str, root_keys: dict[str, Ed25519PublicKey], at: dt.dateti
         issued, expires = _parse_time(cert["issued_at"]), _parse_time(cert["expires_at"])
         if expires <= issued:
             raise ValueError("expires_at must be after issued_at")
-    except (ValueError, TypeError, UnicodeDecodeError) as exc:
-        return MALFORMED, {"why": str(exc)}
+    except (ValueError, TypeError, UnicodeDecodeError, RecursionError, UnsupportedAlgorithm) as exc:
+        return MALFORMED, {"why": str(exc)[:200]}
     root = root_keys.get(cert["root_key_id"])
     if root is None:
         return UNKNOWN_KEY, cert
@@ -696,9 +696,23 @@ def sign_place_registry(registry_bytes: bytes, admin_key: ec.EllipticCurvePrivat
     }
 
 
-def verify_package(package: dict, root_keys: dict[str, Ed25519PublicKey]) -> tuple[str, dict | None]:
+UPLOAD_CLOCK_SKEW = dt.timedelta(minutes=5)
+
+
+def verify_package(package: dict, root_keys: dict[str, Ed25519PublicKey],
+                   now: dt.datetime | None = None) -> tuple[str, dict | None]:
     """(result, registry). Checked from the root down: shape and registry format -> certificate (valid when the
-    registry was issued) -> places agree -> the registry names its certificate -> the admin's signature."""
+    registry was issued, and the registry doesn't outlive it) -> places agree -> the registry names its
+    certificate -> the admin's signature. The server passes [now]: the certificate must also be valid at upload
+    time and the registry can't be issued in the future. Never raises: anything odd is MALFORMED."""
+    try:
+        return _verify_package(package, root_keys, now)
+    except Exception:  # noqa: BLE001 - uploads come from anyone; a crash must not become a server error
+        return MALFORMED, None
+
+
+def _verify_package(package: dict, root_keys: dict[str, Ed25519PublicKey],
+                    now: dt.datetime | None) -> tuple[str, dict | None]:
     try:
         if not isinstance(package, dict) or any(not isinstance(package.get(f), str) for f in PACKAGE_FIELDS):
             raise ValueError("package needs place_id, registry_b64url, signature_b64url and cert")
@@ -709,9 +723,18 @@ def verify_package(package: dict, root_keys: dict[str, Ed25519PublicKey]) -> tup
     reg, errors, _ = validate_registry(registry_bytes)
     if errors or "place_id" not in reg:
         return MALFORMED, None
-    status, cert = verify_cert(package["cert"], root_keys, at=_parse_time_lenient(reg["issued_at"]))
+    issued = _parse_time_lenient(reg["issued_at"])
+    status, cert = verify_cert(package["cert"], root_keys, at=issued)
     if status != VALID:
         return status, None
+    if _parse_time_lenient(reg["expires_at"]) > _parse_time(cert["expires_at"]):
+        return EXPIRED, None  # backdating issued_at must not let a list outlive its certificate
+    if now is not None:
+        status, _ = verify_cert(package["cert"], root_keys, at=now)
+        if status != VALID:
+            return status, None
+        if issued > now + UPLOAD_CLOCK_SKEW:
+            return NOT_YET_VALID, None
     if not (cert["place_id"] == package["place_id"] == reg["place_id"]):
         return WRONG_PLACE, None
     if reg["key_id"] != cert["cert_id"]:
@@ -823,7 +846,9 @@ def make_test_vectors() -> dict:
         assert got == expect, f"{name}: expected {expect}, got {got}"
         out_qr.append({"name": name, "raw": raw, "expect": expect})
 
-    cert_cases, package_cases = _admin_vectors(kid, key, keys)
+    root_kid = "wave-root-test"
+    root_key = Ed25519PrivateKey.generate()
+    cert_cases, package_cases = _admin_vectors(root_kid, root_key, {root_kid: root_key.public_key()}, kid, key)
 
     return {
         "about": "Generated by wave_sign.py test-vectors. Uses a throwaway TEST key - never the real key. "
@@ -831,6 +856,8 @@ def make_test_vectors() -> dict:
         "contract_version": 1,
         "domains": {"registry": REGISTRY_DOMAIN.decode(), "qr": QR_DOMAIN.decode(), "cert": CERT_DOMAIN.decode()},
         "public_keys": {kid: public_key_b64(key)},
+        # Certificates are checked only against these root keys, never against the registry/QR keys above.
+        "root_public_keys": {root_kid: public_key_b64(root_key)},
         "qr_today": today.strftime("%Y%m%d"),
         "rfc8032_test1": {
             "public_key_b64url": b64u_encode(bytes.fromhex(RFC8032_TEST1["public_hex"])),
@@ -849,8 +876,10 @@ def make_test_vectors() -> dict:
     }
 
 
-def _admin_vectors(kid: str, root_key: Ed25519PrivateKey, root_keys: dict) -> tuple[list, list]:
-    """Certificate and place-package cases (CONTRACT §6-7), signed with the throwaway test root."""
+def _admin_vectors(kid: str, root_key: Ed25519PrivateKey, root_keys: dict,
+                   registry_kid: str, registry_key: Ed25519PrivateKey) -> tuple[list, list]:
+    """Certificate and place-package cases (CONTRACT §6-7), signed with a throwaway test root key that is separate
+    from the registry/QR test key (a certificate signed by a registry key must be UNKNOWN_KEY)."""
     t0 = dt.datetime(2026, 11, 24, 0, 0, 0, tzinfo=dt.timezone.utc)
     admin = ec.generate_private_key(ec.SECP256R1())
     other = ec.generate_private_key(ec.SECP256R1())
@@ -859,6 +888,7 @@ def _admin_vectors(kid: str, root_key: Ed25519PrivateKey, root_keys: dict) -> tu
     short = certify_admin(req, "testplace", "Test Place", 1, kid, root_key, now=t0)
     stranger = Ed25519PrivateKey.generate()
     unknown_root = certify_admin(req, "testplace", "Test Place", 365, "someone-else", stranger, now=t0)
+    by_registry_key = certify_admin(req, "testplace", "Test Place", 365, registry_kid, registry_key, now=t0)
     body, sig = cert[len(CERT_PREFIX):].split(".")
     tampered = json.loads(b64u_decode(body))
     tampered["place_id"] = "otherplace"
@@ -871,6 +901,7 @@ def _admin_vectors(kid: str, root_key: Ed25519PrivateKey, root_keys: dict) -> tu
         ("valid", cert, at(1), VALID),
         ("tampered_place", tampered_text, at(1), BAD_SIGNATURE),
         ("unknown_root", unknown_root, at(1), UNKNOWN_KEY),
+        ("signed_by_registry_key", by_registry_key, at(1), UNKNOWN_KEY),
         ("expired", short, at(2), EXPIRED),
         ("not_yet_valid", cert, _fmt(t0 - dt.timedelta(minutes=1)), NOT_YET_VALID),
         ("malformed", "WAVECERT:1:not-a-cert", at(1), MALFORMED),
@@ -881,10 +912,10 @@ def _admin_vectors(kid: str, root_key: Ed25519PrivateKey, root_keys: dict) -> tu
         assert got == expect, f"cert {name}: expected {expect}, got {got}"
         out_certs.append({"name": name, "cert": text, "at": when, "expect": expect})
 
-    def place_registry(place: str, key_id: str, issued_days: float) -> bytes:
+    def place_registry(place: str, key_id: str, issued_days: float, expires_days: float = 200) -> bytes:
         reg = {
             "schema": "wave-registry/1", "version": 2, "key_id": key_id, "place_id": place,
-            "issued_at": at(issued_days), "expires_at": at(200),
+            "issued_at": at(issued_days), "expires_at": at(expires_days),
             "campus_asns": [{"asn": 64500, "name": "Example campus ISP (documentation ASN)"}],
             "networks": [{"ssid": "TEST-PLACE-WIFI", "security": "WPA2-PSK", "aps": [
                 {"bssid": "00:00:5e:00:53:10", "band": "5GHz", "channel": 36, "building": "Main",
@@ -902,6 +933,7 @@ def _admin_vectors(kid: str, root_key: Ed25519PrivateKey, root_keys: dict) -> tu
         ("signed_by_other_admin", sign_place_registry(place_registry("testplace", cert_id, 1), other, cert), BAD_SIGNATURE),
         ("tampered_registry", dict(good, registry_b64url=b64u_encode(tampered_reg)), BAD_SIGNATURE),
         ("cert_expired_before_issue", sign_place_registry(place_registry("testplace", cert_id, 3), admin, short), EXPIRED),
+        ("outlives_certificate", sign_place_registry(place_registry("testplace", cert_id, 1, expires_days=400), admin, cert), EXPIRED),
         ("key_id_not_cert_id", sign_place_registry(place_registry("testplace", "someone-else", 1), admin, cert), MALFORMED),
     ]
     out_packages = []

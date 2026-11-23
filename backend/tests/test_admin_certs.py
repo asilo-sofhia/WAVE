@@ -227,7 +227,8 @@ def test_cli_full_flow(tmp_path, capsys):
 
     issued = (dt.datetime.now(UTC) + dt.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
     reg = tmp_path / "batstateu.json"
-    reg.write_bytes(_place_registry("batstateu", _cert_id(cert), issued=issued, expires="2099-01-01T00:00:00Z"))
+    expires = (dt.datetime.now(UTC) + dt.timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")  # within the certificate
+    reg.write_bytes(_place_registry("batstateu", _cert_id(cert), issued=issued, expires=expires))
     pkg = tmp_path / "package.json"
     code, _, err = _run(capsys, "sign-place-registry", str(reg), "--admin-key", str(admin_pem), "--cert", cert, "--out", str(pkg))
     assert code == 0, err
@@ -249,4 +250,61 @@ def test_test_vectors_have_cert_and_package_cases():
     assert {c["expect"] for c in v["cert_cases"]} >= {ws.VALID, ws.BAD_SIGNATURE, ws.UNKNOWN_KEY, ws.EXPIRED, ws.NOT_YET_VALID, ws.MALFORMED}
     assert {c["expect"] for c in v["package_cases"]} >= {ws.VALID, ws.WRONG_PLACE, ws.BAD_SIGNATURE, ws.EXPIRED, ws.MALFORMED}
     assert v["domains"]["cert"] == ws.CERT_DOMAIN.decode()
+
+# ---------------- review fixes ----------------
+UNKNOWN_ALG_SPKI = bytes.fromhex("3013300c06082b06010401da47010500030300ffff")
+
+
+def test_hostile_inputs_never_raise(root, admin_key):
+    """Phase 2 runs verify_package on uploads from anyone: every bad input must be MALFORMED, never an exception."""
+    cert = _cert(root, admin_key)
+    body, sig = cert[len("WAVECERT:1:"):].split(".")
+    c = json.loads(base64.urlsafe_b64decode(body + "=="))
+    odd_key = dict(c, admin_public_key=ws.b64u_encode(UNKNOWN_ALG_SPKI))
+    forged = "WAVECERT:1:" + ws.b64u_encode(json.dumps(odd_key, separators=(",", ":"), sort_keys=True).encode()) + "." + sig
+    assert ws.verify_cert(forged, root[2], at=NOW)[0] == ws.MALFORMED
+    assert ws.verify_cert("WAVECERT:1:" + ws.b64u_encode(b"[" * 200000) + "." + sig, root[2], at=NOW)[0] == ws.MALFORMED
+
+    good = _package(root, admin_key)
+    reg = json.loads(base64.urlsafe_b64decode(good["registry_b64url"] + "=="))
+    bad_registries = [
+        b"[" * 200000,                                                    # deep nesting
+        b'{"version": ' + b"9" * 5000 + b"}",                             # huge integer
+        json.dumps(dict(reg, networks=[dict(reg["networks"][0], security=[])])).encode(),
+        json.dumps(dict(reg, networks=[dict(reg["networks"][0], aps=[dict(reg["networks"][0]["aps"][0], band={})])])).encode(),
+    ]
+    for raw in bad_registries:
+        assert ws.verify_package(dict(good, registry_b64url=ws.b64u_encode(raw)), root[2])[0] == ws.MALFORMED
+    with pytest.raises(ValueError):
+        ws.parse_admin_request("WAVEREQ:1:" + ws.b64u_encode(json.dumps(
+            {"admin_name": "x", "place_id": "batstateu", "admin_key_alg": "ES256", "admin_public_key": ws.b64u_encode(UNKNOWN_ALG_SPKI)}).encode()))
+
+
+def test_list_cannot_outlive_its_certificate(root, admin_key):
+    """An admin whose certificate expired must not keep publishing by backdating issued_at (expiry would be useless)."""
+    cert = _cert(root, admin_key, days=1)
+    reg = json.loads(_place_registry("batstateu", _cert_id(cert), issued="2026-11-24T12:00:00Z"))
+    reg["expires_at"] = "2099-01-01T00:00:00Z"
+    pkg = ws.sign_place_registry(json.dumps(reg).encode(), admin_key, cert)
+    assert ws.verify_package(pkg, root[2])[0] == ws.EXPIRED
+
+
+def test_server_also_checks_the_certificate_now(root, admin_key):
+    """The server passes `now`: a certificate that has expired by upload time is refused, even if issued_at is inside it."""
+    cert = _cert(root, admin_key, days=10)
+    reg = json.loads(_place_registry("batstateu", _cert_id(cert), issued="2026-11-25T00:00:00Z"))
+    reg["expires_at"] = "2026-12-01T00:00:00Z"
+    pkg = ws.sign_place_registry(json.dumps(reg).encode(), admin_key, cert)
+    assert ws.verify_package(pkg, root[2])[0] == ws.VALID
+    assert ws.verify_package(pkg, root[2], now=NOW + dt.timedelta(days=11))[0] == ws.EXPIRED
+    assert ws.verify_package(pkg, root[2], now=NOW + dt.timedelta(days=2))[0] == ws.VALID
+
+
+def test_vectors_sign_certificates_with_a_separate_root_key():
+    """Certificates are checked only against root keys, never against the registry/QR keys (e.g. the exposed wave-2026-a)."""
+    v = ws.make_test_vectors()
+    assert set(v["root_public_keys"]) == {"wave-root-test"}
+    assert not set(v["root_public_keys"]) & set(v["public_keys"])
+    by_name = {c["name"]: c["expect"] for c in v["cert_cases"]}
+    assert by_name["signed_by_registry_key"] == ws.UNKNOWN_KEY
 

@@ -183,7 +183,8 @@ The admin scans `out/cert-ana.png` in WAVE. The tool refuses a request that asks
 ```bash
 python signing/wave_sign.py admin-request --name "Ana Cruz" --place batstateu          # makes keys/admin-batstateu-1.private.pem, prints WAVEREQ:1:...
 python signing/wave_sign.py certify-admin --request "WAVEREQ:1:..." --place batstateu --place-name "Batangas State University" --key keys/wave-root-2026.private.pem > out/cert.txt
-# a place registry: a normal registry plus "place_id": "batstateu", with "key_id" = the certificate's cert_id
+# a place registry: a normal registry plus "place_id": "batstateu", "key_id" = the certificate's cert_id,
+# and an "expires_at" no later than the certificate's (a list can't outlive its certificate)
 python signing/wave_sign.py sign-place-registry registry/batstateu.json --admin-key keys/admin-batstateu-1.private.pem --cert @out/cert.txt --out out/package.json
 python signing/wave_sign.py verify-package out/package.json --pub keys/wave-root-2026.public.json   # Result: VALID
 ```
