@@ -225,6 +225,10 @@ def validate_registry(data: bytes) -> tuple[dict, list[str], list[str]]:
     key_id = reg.get("key_id")
     if not isinstance(key_id, str) or not KEY_ID_RE.match(key_id):
         errors.append("key_id: missing or invalid")
+    if "place_id" in reg:  # optional: only place registries (CONTRACT §7) have it
+        place = reg["place_id"]
+        if not isinstance(place, str) or not PLACE_ID_RE.match(place):
+            errors.append("place_id: lowercase letters, digits and '-', max 32 chars")
     issued = _parse_utc(reg.get("issued_at"), "issued_at", errors)
     expires = _parse_utc(reg.get("expires_at"), "expires_at", errors)
     if issued and expires and expires <= issued:
@@ -674,6 +678,54 @@ def verify_cert(text: str, root_keys: dict[str, Ed25519PublicKey], at: dt.dateti
     if at > expires:
         return EXPIRED, cert
     return VALID, cert
+
+
+PACKAGE_FIELDS = ("place_id", "registry_b64url", "signature_b64url", "cert")
+
+
+def sign_place_registry(registry_bytes: bytes, admin_key: ec.EllipticCurvePrivateKey, cert_text: str) -> dict:
+    """Sign a place registry with an admin's P-256 key and bundle it with the certificate (CONTRACT §7).
+    On a real admin this happens inside the phone's secure hardware; this is the laptop version for tests."""
+    reg = json.loads(registry_bytes.decode("utf-8"))
+    signature = admin_key.sign(REGISTRY_DOMAIN + registry_bytes, ec.ECDSA(hashes.SHA256()))
+    return {
+        "place_id": reg.get("place_id"),
+        "registry_b64url": b64u_encode(registry_bytes),
+        "signature_b64url": b64u_encode(signature),
+        "cert": cert_text.strip(),
+    }
+
+
+def verify_package(package: dict, root_keys: dict[str, Ed25519PublicKey]) -> tuple[str, dict | None]:
+    """(result, registry). Checked from the root down: shape and registry format -> certificate (valid when the
+    registry was issued) -> places agree -> the registry names its certificate -> the admin's signature."""
+    try:
+        if not isinstance(package, dict) or any(not isinstance(package.get(f), str) for f in PACKAGE_FIELDS):
+            raise ValueError("package needs place_id, registry_b64url, signature_b64url and cert")
+        registry_bytes = b64u_decode(package["registry_b64url"])
+        signature = b64u_decode(package["signature_b64url"])
+    except ValueError:
+        return MALFORMED, None
+    reg, errors, _ = validate_registry(registry_bytes)
+    if errors or "place_id" not in reg:
+        return MALFORMED, None
+    status, cert = verify_cert(package["cert"], root_keys, at=_parse_time_lenient(reg["issued_at"]))
+    if status != VALID:
+        return status, None
+    if not (cert["place_id"] == package["place_id"] == reg["place_id"]):
+        return WRONG_PLACE, None
+    if reg["key_id"] != cert["cert_id"]:
+        return MALFORMED, None
+    try:
+        load_admin_public_key(cert["admin_public_key"]).verify(signature, REGISTRY_DOMAIN + registry_bytes, ec.ECDSA(hashes.SHA256()))
+    except InvalidSignature:
+        return BAD_SIGNATURE, None
+    return VALID, reg
+
+
+def _parse_time_lenient(value: str) -> dt.datetime:
+    """A registry time (ISO 8601 UTC ending in Z) as an aware datetime."""
+    return dt.datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(dt.timezone.utc)
 
 
 # ---------------------------------------------------------------------------
