@@ -213,8 +213,7 @@ private fun Loaded(
 private fun approveNote(network: NetworkUi, rows: List<ReviewAp>): String? = when {
     network.ssid == RegistryClassifier.HIDDEN_NAME -> "Hidden networks have no name to register. You can still block them."
     !canApprove(network) -> "${network.security.label} can't be put in the registry. You can still block it."
-    rows.all { it.madeUp } -> "Every address of this network is made-up, which WAVE always warns about, so it can't be approved."
-    rows.any { it.madeUp } -> "Approve skips made-up addresses (WAVE always warns about those). Block includes them."
+    rows.any { it.madeUp } -> "Some addresses are made-up, as mesh routers and phone hotspots use. Approve only if you're sure this is your router (check its label)."
     else -> null
 }
 

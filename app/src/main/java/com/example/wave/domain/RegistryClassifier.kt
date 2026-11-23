@@ -117,19 +117,24 @@ class RegistryClassifier(
         return listOf(
             VerdictCheck(CheckKind.NETWORK_NAME, CheckOutcome.PASSED, "${entry.ssid} is on the signed registry."),
             accessPoint,
-            hardwareCheck(o, registered = true),
+            hardwareCheck(o, registered = true, approvedByAdmin = ap != null),
             security,
             signal,
         )
     }
 
     /**
-     * A made-up (locally administered) address is a red flag for a registered name. For an unknown network it
-     * is only a hint (phone hotspots use them too), so it stays UNKNOWN instead of FAILED.
+     * A made-up (locally administered) address is a red flag for a registered name, unless the campus admin approved
+     * that exact access point (mesh units and multi-network routers use made-up addresses too). For an unknown
+     * network it is only a hint (phone hotspots use them too), so it stays UNKNOWN instead of FAILED.
      */
-    private fun hardwareCheck(o: ScanObservation, registered: Boolean): VerdictCheck = when {
+    private fun hardwareCheck(o: ScanObservation, registered: Boolean, approvedByAdmin: Boolean = false): VerdictCheck = when {
         !isLocallyAdministered(o.bssid) ->
             VerdictCheck(CheckKind.HARDWARE_ADDRESS, CheckOutcome.PASSED, "Manufacturer-assigned address, as real routers have.")
+        approvedByAdmin -> VerdictCheck(
+            CheckKind.HARDWARE_ADDRESS, CheckOutcome.PASSED,
+            "Made-up address (first byte ${o.bssid.take(2)}), but the campus admin approved this exact access point.",
+        )
         registered -> VerdictCheck(
             CheckKind.HARDWARE_ADDRESS, CheckOutcome.FAILED,
             "The first byte (${o.bssid.take(2)}) marks a made-up address, typical of phone hotspots and fake routers.",

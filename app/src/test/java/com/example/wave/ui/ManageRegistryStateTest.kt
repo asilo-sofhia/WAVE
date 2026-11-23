@@ -101,15 +101,15 @@ class ManageRegistryStateTest {
         assertEquals(1, empty.nextVersion)
     }
 
-    /** Admin Scan: Approve skips made-up addresses (WAVE always warns about them); Block takes every radio. */
+    /** Admin Scan: Approve and Block both take every radio, made-up addresses included (the admin decides). */
     @Test
     fun adminScanTargets() {
         val real = FakeFixtures.campus.copy(bssid = "8C:3B:AD:72:10:4F")
         val madeUp = FakeFixtures.campus.copy(bssid = "6a:3f:00:11:22:9c")
         val rows = reviewAps(listOf(real, madeUp)) { null }
-        assertEquals(setOf("8c:3b:ad:72:10:4f"), adminApproveTargets(rows))
+        assertEquals(setOf("8c:3b:ad:72:10:4f", "6a:3f:00:11:22:9c"), adminApproveTargets(rows))
         assertEquals(setOf("8c:3b:ad:72:10:4f", "6a:3f:00:11:22:9c"), adminBlockTargets(rows))
-        assertTrue(adminApproveTargets(reviewAps(listOf(madeUp)) { null }).isEmpty())
+        assertEquals(setOf("6a:3f:00:11:22:9c"), adminApproveTargets(reviewAps(listOf(madeUp)) { null }))
     }
 
     /** Admin Scan: an approved or blocked network offers "View details", opening that tab of Manage registry. */

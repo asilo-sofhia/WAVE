@@ -96,8 +96,8 @@ fun viewDetailsTab(status: DraftStatus): AdminTab? = when (status) {
     DraftStatus.NEW -> null
 }
 
-/** Admin Scan's Approve: every radio except made-up addresses (WAVE warns about those even when registered). */
-fun adminApproveTargets(aps: List<ReviewAp>): Set<String> = aps.filter { it.preselected }.map { it.bssid }.toSet()
+/** Admin Scan's Approve: every radio of the network, made-up addresses included (the admin decides). */
+fun adminApproveTargets(aps: List<ReviewAp>): Set<String> = aps.map { it.bssid }.toSet()
 
 /** Admin Scan's Block: every radio of the network. */
 fun adminBlockTargets(aps: List<ReviewAp>): Set<String> = aps.map { it.bssid }.toSet()

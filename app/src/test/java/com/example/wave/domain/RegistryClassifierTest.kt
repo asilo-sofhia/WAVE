@@ -172,4 +172,22 @@ class RegistryClassifierTest {
         val cafe = classifier.classify(obs(ssid = "Cafe", bssid = "00:11:22:33:44:55"), blockedRegistry)
         assertEquals(Verdict.UNKNOWN, cafe.verdict)
     }
+
+    /** An access point the campus admin approved passes even with a made-up address (mesh and some campus APs use them). */
+    @Test
+    fun approvedMadeUpAddressIsVerified() {
+        val withMesh = registry.copy(
+            networks = listOf(
+                registry.networks.single().copy(
+                    aps = registry.networks.single().aps + RegistryAp("52:14:c1:c3:f8:c4", WifiBand.GHZ_5, 100, "Home", -85, -25),
+                ),
+            ),
+        )
+        val n = classifier.classify(obs(bssid = "52:14:c1:c3:f8:c4", freq = 5500, rssi = -57), withMesh)
+        assertEquals(Verdict.VERIFIED, n.verdict)
+        assertEquals(CheckOutcome.PASSED, n.outcome(CheckKind.HARDWARE_ADDRESS))
+        // A made-up address that is NOT on the list still warns.
+        val twin = classifier.classify(obs(bssid = "52:14:c1:c3:f8:99"), withMesh)
+        assertTrue(WarningReason.LOCALLY_ADMINISTERED in twin.reasons)
+    }
 }
