@@ -52,7 +52,7 @@ import com.example.wave.ui.theme.Spacing
 enum class AdminTab { APPROVED, BLOCKED }
 
 /** Feedback from the admin actions (provider detection, publishing, clearing). */
-data class AdminActionsUi(val detecting: Boolean = false, val message: String? = null)
+data class AdminActionsUi(val detecting: Boolean = false, val message: String? = null, val publishing: Boolean = false)
 
 /**
  * One approved or blocked network (its radios grouped): Wi-Fi icon, name, details and decision, with an edit button.
@@ -106,9 +106,13 @@ fun AdminActionsCard(
     onDetectProvider: () -> Unit,
     onPublish: () -> Unit,
     onClear: () -> Unit,
+    /** The place this phone publishes for (a valid admin ID card), or null: then the list is saved as a file. */
+    publishTo: String? = null,
+    onPublishToServer: () -> Unit = {},
 ) {
     val summary = summarize(draft)
     var confirmClear by remember { mutableStateOf(false) }
+    var confirmPublish by remember { mutableStateOf(false) }
     WaveCard(Modifier.fillMaxWidth().padding(top = Spacing.m), color = Color.White) {
         Text("Campus provider", style = MaterialTheme.typography.titleMedium, color = Navy900, modifier = Modifier.semantics { heading() })
         Text(
@@ -122,14 +126,30 @@ fun AdminActionsCard(
 
         Spacer(Modifier.height(Spacing.l))
         Text("Publish list", style = MaterialTheme.typography.titleMedium, color = Navy900, modifier = Modifier.semantics { heading() })
-        Text(
-            "Users' phones only trust a list stamped with the campus key, which stays on the laptop. " +
-                "Save the list here, sign it on the laptop, then upload it to the WAVE server: every phone downloads it.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Slate600,
-        )
-        Spacer(Modifier.height(Spacing.s))
-        PrimaryButton("Save list for publishing", onClick = onPublish, enabled = summary.canExport, icon = R.drawable.ic_open_in_new)
+        if (publishTo != null) {
+            Text(
+                "Signed on this phone with your admin key and sent to the WAVE server. Every phone downloads it.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Slate600,
+            )
+            Spacer(Modifier.height(Spacing.s))
+            PrimaryButton(
+                "Publish to $publishTo",
+                onClick = { confirmPublish = true },
+                enabled = summary.canExport,
+                loading = ui.publishing,
+                icon = R.drawable.ic_shield_check,
+            )
+        } else {
+            Text(
+                "Users' phones only trust a list stamped with the campus key, which stays on the laptop. " +
+                    "Save the list here, sign it on the laptop, then upload it to the WAVE server: every phone downloads it.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Slate600,
+            )
+            Spacer(Modifier.height(Spacing.s))
+            PrimaryButton("Save list for publishing", onClick = onPublish, enabled = summary.canExport, icon = R.drawable.ic_open_in_new)
+        }
         if (!summary.canExport) {
             Text("Approve at least one network first.", style = MaterialTheme.typography.bodySmall, color = Slate600)
         }
@@ -140,6 +160,15 @@ fun AdminActionsCard(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             WaveTextButton("Clear list", onClick = { confirmClear = true })
         }
+    }
+    if (confirmPublish && publishTo != null) {
+        PublishConfirmDialog(
+            placeName = publishTo,
+            networks = summary.networkCount,
+            blocked = summary.blockedCount,
+            onPublish = { confirmPublish = false; onPublishToServer() },
+            onDismiss = { confirmPublish = false },
+        )
     }
     if (confirmClear) {
         AlertDialog(
