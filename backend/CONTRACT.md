@@ -172,7 +172,7 @@ App logic: the check runs only on networks the registry already marks **Verified
 `places_storage` is `postgres` when place packages are kept in Supabase, or `memory` (lost on restart) when `DATABASE_URL` is not set.
 
 ### Place packages (§7)
-Place admins upload their signed package; phones list the places and download each package. **Phones check every package themselves (§7).** The server's check only keeps junk out. All three answers carry `Cache-Control: no-store`.
+Place admins upload their signed package; phones list the places and download each package. Answers over 1 KiB are gzip-compressed when the client sends `Accept-Encoding: gzip` (Android does this by itself). **Phones check every package themselves (§7).** The server's check only keeps junk out. All three answers carry `Cache-Control: no-store`.
 
 **`POST /v1/places/{place_id}/registry`**: the body is the package JSON (§7), at most **256 KiB**. Extra fields are dropped. The server checks it as in §7, including the upload-time checks, then stores it only if its `version` is higher than the stored one for that place. Answer: `{"result": "<RESULT>"}`, plus `"place_id"` and `"version"` when stored.
 
