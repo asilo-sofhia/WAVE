@@ -32,6 +32,12 @@ class ServerExitPathChecker(
     private val registry: StateFlow<RegistryState>,
     private val retryDelaysMs: List<Long> = listOf(2_000, 4_000),
     private val overallTimeoutMs: Long = 30_000,
+    /**
+     * With several lists (campus + places): the real ASNs of the list(s) holding this access point. A place list
+     * without a provider can't judge, so it's never FAILED because ANOTHER list's provider differs.
+     * Null: the whole registry's campus_asns (one list).
+     */
+    private val asnsFor: ((bssid: String) -> Set<Int>)? = null,
 ) : ExitPathChecker {
 
     /**
@@ -43,7 +49,7 @@ class ServerExitPathChecker(
 
     override fun check(network: NetworkUi): Flow<ExitPathStatus> = flow {
         emit(ExitPathStatus.PENDING)
-        val campus = campusAsns()
+        val campus = asnsFor?.invoke(network.bssid) ?: campusAsns()
         if (campus.isEmpty()) {
             emit(ExitPathStatus.UNREACHABLE)
             return@flow

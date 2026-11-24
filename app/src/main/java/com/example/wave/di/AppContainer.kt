@@ -112,8 +112,9 @@ class AppContainer(context: Context) {
     ).also { repo -> appScope.launch { repo.loadLocal(); repo.sync() } }
 
     /** What every screen judges against: the school list merged with every place's list. */
-    val registryRepository: RegistryRepository =
+    private val combinedRegistry =
         CombinedRegistryRepository(syncingRegistry, placeLists.lists, { placeLists.sync() }, appScope)
+    val registryRepository: RegistryRepository = combinedRegistry
 
     /** Campus admin tools: the registry draft (saved on this phone) and the signal seen per access point this session. */
     val registryDraft = RegistryDraftStore(File(context.filesDir, "admin/draft.json"))
@@ -161,7 +162,7 @@ class AppContainer(context: Context) {
         androidScanner?.let { scanner -> HttpExitPathFetcher(serverSettings::current) { scanner.currentNetwork } }
 
     val exitPathChecker: ExitPathChecker =
-        exitPathFetcher?.let { ServerExitPathChecker(it, registryRepository.state) } ?: FakeExitPathChecker(store)
+        exitPathFetcher?.let { ServerExitPathChecker(it, registryRepository.state, asnsFor = combinedRegistry::asnsFor) } ?: FakeExitPathChecker(store)
 
     private companion object {
         const val KEY_FAKE_LOCATION = "fake_location_granted"

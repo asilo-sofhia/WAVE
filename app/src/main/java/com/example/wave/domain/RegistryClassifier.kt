@@ -27,7 +27,12 @@ class RegistryClassifier(
 ) : NetworkClassifier {
 
     override fun classify(observation: ScanObservation, registry: Registry?): NetworkUi {
-        val entry = registry?.networks?.firstOrNull { it.ssid == observation.ssid && observation.ssid.isNotEmpty() }
+        // Several lists can name the same SSID (e.g. with another security): judge against the entry that lists
+        // this access point, else one with the same security, else the first. An unlisted twin still fails.
+        val sameName = registry?.networks?.filter { it.ssid == observation.ssid && observation.ssid.isNotEmpty() }.orEmpty()
+        val entry = sameName.firstOrNull { n -> n.aps.any { it.bssid == observation.bssid } }
+            ?: sameName.firstOrNull { it.security == observation.security }
+            ?: sameName.firstOrNull()
         // The campus block list comes first: a blocked access point is a WARNING whatever name it uses.
         val blocked = registry?.blocked?.firstOrNull { it.bssid == observation.bssid }
         val blockCheck = blocked?.let {

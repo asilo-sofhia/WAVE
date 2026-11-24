@@ -122,6 +122,38 @@ class CombinedRegistryTest {
         }
     }
 
+    private fun obsOf(ssid: String, bssid: String, caps: String) = ScanObservation(
+        ssid = ssid, bssid = bssid, capabilities = caps, security = securityFromCapabilities(caps),
+        band = bandForFrequency(5180), channel = channelForFrequency(5180), frequencyMhz = 5180,
+        channelWidthMhz = 20, wifiStandard = null, rssi = -50, timestampMillis = 1_000L,
+    )
+
+    /** Same name, different security in two lists: each list's own access points stay Verified. */
+    @Test
+    fun classifierPicksTheEntryThatHasTheAccessPoint() {
+        val wpa3 = "[RSN-SAE-CCMP][ESS]"
+        val merged = mergeRegistries(
+            reg(3, listOf(net("BSU-WiFi", "00:00:5e:00:53:01"))),
+            listOf(reg(1, listOf(net("BSU-WiFi", "00:00:5e:00:53:03", security = securityFromCapabilities(wpa3))))),
+        )
+        val c = RegistryClassifier()
+        assertEquals(Verdict.VERIFIED, c.classify(obsOf("BSU-WiFi", "00:00:5e:00:53:03", wpa3), merged).verdict)
+        assertEquals(Verdict.VERIFIED, c.classify(obsOf("BSU-WiFi", "00:00:5e:00:53:01", "[WPA2-PSK-CCMP][RSN-PSK-CCMP][ESS]"), merged).verdict)
+        // An open twin with an unlisted address is still a possible evil twin.
+        assertEquals(Verdict.WARNING, c.classify(obsOf("BSU-WiFi", "00:00:5e:00:53:66", "[ESS]"), merged).verdict)
+    }
+
+    /** The exit-path check uses the providers of the list(s) that hold that access point. */
+    @Test
+    fun asnsFollowTheListThatHasTheAccessPoint() {
+        val byBssid = asnsByBssid(
+            reg(3, listOf(net("BSU-WiFi", "00:00:5e:00:53:01")), asns = listOf(CampusAsn(9299, "PLDT"), CampusAsn(0, "placeholder"))),
+            listOf(reg(1, listOf(net("SM-WiFi", "00:00:5e:00:53:02", "00:00:5e:00:53:01")))),
+        )
+        assertEquals(setOf(9299), byBssid["00:00:5e:00:53:01"])
+        assertEquals(emptySet<Int>(), byBssid["00:00:5e:00:53:02"])
+    }
+
     @Test
     fun classifierVerifiesAPlaceNetwork() {
         val merged = mergeRegistries(null, listOf(reg(1, listOf(net("SM-WiFi", "00:00:5e:00:53:02")))))

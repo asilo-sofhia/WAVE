@@ -50,6 +50,19 @@ fun mergeRegistries(campus: Registry?, places: List<Registry>): Registry? {
 }
 
 /**
+ * For the exit-path check: each listed access point -> the real campus ASNs (not the 0 placeholder) of the
+ * list(s) that hold it. Pure.
+ */
+fun asnsByBssid(campus: Registry?, places: List<Registry>): Map<String, Set<Int>> {
+    val out = HashMap<String, MutableSet<Int>>()
+    for (r in listOfNotNull(campus) + places) {
+        val asns = r.campusAsns.map { it.asn }.filter { it != 0 }
+        for (n in r.networks) for (ap in n.aps) out.getOrPut(ap.bssid) { mutableSetOf() } += asns
+    }
+    return out
+}
+
+/**
  * The registry every screen sees: [campus] (the signed school list, bundled or downloaded) merged with every
  * verified place list. Stale when the campus list is Stale; Missing only when there is nothing at all.
  */
@@ -59,6 +72,11 @@ class CombinedRegistryRepository(
     private val refreshPlaces: suspend () -> Unit,
     scope: CoroutineScope,
 ) : RegistryRepository {
+
+    @Volatile private var asns: Map<String, Set<Int>> = emptyMap()
+
+    /** The real ASNs of the list(s) holding [bssid] (for the exit-path check). */
+    fun asnsFor(bssid: String): Set<Int> = asns[bssid].orEmpty()
 
     override val state: StateFlow<RegistryState> = combine(campus.state, places, ::combined)
         .stateIn(scope, SharingStarted.Eagerly, combined(campus.state.value, places.value))
@@ -70,7 +88,9 @@ class CombinedRegistryRepository(
     }
 
     private fun combined(c: RegistryState, p: Map<String, PlaceList>): RegistryState {
-        val merged = mergeRegistries(c.registryOrNull, p.toSortedMap().values.map { it.registry }) ?: return c
+        val placeRegs = p.toSortedMap().values.map { it.registry }
+        asns = asnsByBssid(c.registryOrNull, placeRegs)
+        val merged = mergeRegistries(c.registryOrNull, placeRegs) ?: return c
         return if (c is RegistryState.Stale) RegistryState.Stale(merged) else RegistryState.Ready(merged)
     }
 }
