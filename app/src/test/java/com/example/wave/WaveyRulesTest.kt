@@ -17,28 +17,24 @@ import org.junit.Test
 class WaveyRulesTest {
 
     @Test
-    fun happyOnlyWhenConnectedVerifiedAndExitPassed() {
-        assertEquals(WaveyMood.HAPPY, waveyMoodFor(Verdict.VERIFIED, ExitPathStatus.PASSED, connected = true))
-        for (verdict in Verdict.entries) {
-            for (exit in ExitPathStatus.entries + listOf<ExitPathStatus?>(null)) {
-                for (connected in listOf(true, false)) {
-                    val isHappyCase = verdict == Verdict.VERIFIED && exit == ExitPathStatus.PASSED && connected
-                    if (!isHappyCase) {
-                        assertNotEquals(
-                            "verdict=$verdict exit=$exit connected=$connected",
-                            WaveyMood.HAPPY,
-                            waveyMoodFor(verdict, exit, connected),
-                        )
-                    }
-                }
+    fun theThreeVerdictMoodsAreTheSameEverywhere() {
+        for (exit in ExitPathStatus.entries.filter { it != ExitPathStatus.FAILED } + listOf<ExitPathStatus?>(null)) {
+            for (connected in listOf(true, false)) {
+                val case = "exit=$exit connected=$connected"
+                assertEquals(case, WaveyMood.HAPPY, waveyMoodFor(Verdict.VERIFIED, exit, connected))
+                assertEquals(case, WaveyMood.CONFUSED, waveyMoodFor(Verdict.UNKNOWN, exit, connected))
+                assertEquals(case, WaveyMood.SCARED, waveyMoodFor(Verdict.WARNING, exit, connected))
             }
         }
+        assertEquals(WaveyMood.HAPPY, waveyMoodFor(Verdict.VERIFIED))
+        assertEquals(WaveyMood.CONFUSED, waveyMoodFor(Verdict.UNKNOWN))
+        assertEquals(WaveyMood.SCARED, waveyMoodFor(Verdict.WARNING))
     }
 
     @Test
-    fun connectedToWarningOrFailedExitIsScared() {
-        assertEquals(WaveyMood.SCARED, waveyMoodFor(Verdict.WARNING, null, connected = true))
+    fun happyNeverWhenTheExitPathFailed() {
         assertEquals(WaveyMood.SCARED, waveyMoodFor(Verdict.VERIFIED, ExitPathStatus.FAILED, connected = true))
+        assertEquals(WaveyMood.SCARED, waveyMoodFor(Verdict.WARNING, null, connected = true))
     }
 
     @Test
@@ -54,22 +50,20 @@ class WaveyRulesTest {
     }
 
     @Test
-    fun nearbyMoods() {
-        assertEquals(WaveyMood.UNCOMFORTABLE, waveyMoodFor(Verdict.WARNING, null, connected = false))
-        assertEquals(WaveyMood.CURIOUS, waveyMoodFor(Verdict.UNKNOWN, null, connected = false))
-        assertEquals(WaveyMood.NORMAL, waveyMoodFor(Verdict.VERIFIED, null, connected = false))
-        assertEquals(WaveyMood.NORMAL, waveyMoodFor(Verdict.VERIFIED, ExitPathStatus.PENDING, connected = true))
+    fun nothingCheckedYetIsNormal() {
         assertEquals(WaveyMood.NORMAL, waveyMoodFor(null, null, connected = false))
+        assertEquals(WaveyMood.NORMAL, waveyMoodFor(null, ExitPathStatus.PENDING, connected = true))
     }
 
     @Test
     fun qrMoods() {
+        // A readable Wi-Fi code waits for its network check; codes that can't be used are SAD.
         assertEquals(WaveyMood.NORMAL, waveyMoodFor(QrResult.VALID))
+        assertEquals(WaveyMood.NORMAL, waveyMoodFor(QrResult.UNSIGNED))
+        assertEquals(WaveyMood.NORMAL, waveyMoodFor(QrResult.UNKNOWN_KEY))
         assertEquals(WaveyMood.SAD, waveyMoodFor(QrResult.BAD_SIGNATURE))
         assertEquals(WaveyMood.SAD, waveyMoodFor(QrResult.EXPIRED))
-        assertEquals(WaveyMood.SAD, waveyMoodFor(QrResult.UNSIGNED))
         assertEquals(WaveyMood.SAD, waveyMoodFor(QrResult.MALFORMED))
-        assertEquals(WaveyMood.SAD, waveyMoodFor(QrResult.UNKNOWN_KEY))
     }
 
     @Test
@@ -95,7 +89,7 @@ class WaveyRulesTest {
     fun unreachableKeepsVerdictAndMood() {
         val n = FakeFixtures.campus // VERIFIED
         assertEquals(n, n.withExitPath(ExitPathStatus.UNREACHABLE))
-        assertEquals(WaveyMood.NORMAL, waveyMoodFor(Verdict.VERIFIED, ExitPathStatus.UNREACHABLE, connected = true))
+        assertEquals(WaveyMood.HAPPY, waveyMoodFor(Verdict.VERIFIED, ExitPathStatus.UNREACHABLE, connected = true))
     }
 
     @Test

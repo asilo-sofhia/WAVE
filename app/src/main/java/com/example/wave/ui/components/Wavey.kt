@@ -5,14 +5,6 @@ import android.graphics.drawable.AnimatedImageDrawable
 import android.provider.Settings
 import android.widget.ImageView
 import androidx.annotation.DrawableRes
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,8 +12,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -30,15 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
@@ -55,15 +42,14 @@ import com.example.wave.model.WaveyMood
 import com.example.wave.ui.theme.UnknownBg
 import com.example.wave.ui.theme.UnknownFg
 import com.example.wave.ui.theme.WAVETheme
-import com.example.wave.ui.theme.WarningBg
-import com.example.wave.ui.theme.WarningFg
 
 /**
  * The ONLY composable that draws the mascot. Screens pass a mood; this decides the image.
  *
- * Real art: NORMAL, HAPPY (still) and WAVING, SCARED, SAD (animated WebP, 48 frames, 2 s loop, exported
- * from the Wavey mood viewer). CURIOUS and UNCOMFORTABLE are still the base image plus a badge, and
- * QR_PEEK is the top half of HAPPY. When their art arrives, only this file changes.
+ * All art is rendered from the Wavey mood viewer (the team's 3D model): animated WebP, 480 px, 48 frames, 2 s loop,
+ * with its own breathing and blinking. Every mood has its own look, except: CURIOUS (still checking) is the NORMAL
+ * face plus an amber clock badge, and QR_PEEK is the top of HAPPY peeking over the scan frame.
+ * When new looks arrive (curious, QR peek), only this file changes.
  */
 @Composable
 fun Wavey(
@@ -71,59 +57,31 @@ fun Wavey(
     modifier: Modifier = Modifier,
     size: Dp = 160.dp,
     animate: Boolean = true,
-    /** Blink every few seconds (still art with open eyes only: NORMAL, CURIOUS, UNCOMFORTABLE). */
-    blink: Boolean = false,
 ) {
     val description = waveyDescription(mood)
     val play = animate && motionAllowed()
-    val animated = animatedArt(mood)
-    // Animated art already moves, so only still art gets the gentle bob.
-    val bob = if (play && animated == null) {
-        val transition = rememberInfiniteTransition(label = "wavey-bob")
-        transition.animateFloat(
-            initialValue = -1f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-            label = "wavey-bob-y",
-        ).value
-    } else {
-        0f
+    val boxModifier = modifier.clearAndSetSemantics {
+        contentDescription = description
+        role = Role.Image
     }
-    val bobPx = with(androidx.compose.ui.platform.LocalDensity.current) { (size * 0.025f).toPx() }
-
-    val boxModifier = modifier
-        .clearAndSetSemantics {
-            contentDescription = description
-            role = Role.Image
-        }
-        .graphicsLayer { translationY = bob * bobPx }
 
     if (mood == WaveyMood.QR_PEEK) {
-        // Top half of Wavey peeking over the scan frame.
+        // Wavey from the fin down to just under the eyes, peeking over the scan frame (the frame's paws cover the rest).
         Box(boxModifier.size(width = size, height = size * 0.5f).clipToBounds()) {
-            Image(
-                painter = painterResource(R.drawable.wavey_happy),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopCenter,
-                modifier = Modifier.fillMaxSize(),
+            AnimatedArt(
+                R.drawable.wavey_happy,
+                play,
+                Modifier
+                    .wrapContentHeight(Alignment.Top, unbounded = true)
+                    .requiredSize(size)
+                    .offset(y = -size * PEEK_TOP),
             )
         }
         return
     }
 
     Box(boxModifier.size(size)) {
-        if (animated != null) {
-            AnimatedArt(animated, play, Modifier.fillMaxSize())
-        } else {
-            Image(
-                painter = painterResource(if (mood == WaveyMood.HAPPY) R.drawable.wavey_happy else R.drawable.wavey_normal),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-            )
-            // HAPPY's eyes are already closed curves, so only the open-eyed base image blinks.
-            if (blink && play && mood != WaveyMood.HAPPY) Blink(Modifier.fillMaxSize())
-        }
+        AnimatedArt(art(mood), play, Modifier.fillMaxSize())
         placeholderBadge(mood)?.let { (icon, colors) ->
             Box(
                 modifier = Modifier
@@ -142,26 +100,33 @@ fun Wavey(
 
 fun waveyDescription(mood: WaveyMood): String = when (mood) {
     WaveyMood.NORMAL -> "Wavey the dolphin, calm"
-    WaveyMood.HAPPY -> "Wavey the dolphin, happy: this connection is safe"
+    WaveyMood.HAPPY -> "Wavey the dolphin, happy: this network is verified"
     WaveyMood.UNCOMFORTABLE -> "Wavey the dolphin, worried"
-    WaveyMood.CURIOUS -> "Wavey the dolphin, curious"
-    WaveyMood.SCARED -> "Wavey the dolphin, scared: you may be connected to a fake network"
+    WaveyMood.CURIOUS -> "Wavey the dolphin, curious: still checking"
+    WaveyMood.CONFUSED -> "Wavey the dolphin, confused: this network is unknown"
+    WaveyMood.SCARED -> "Wavey the dolphin, scared: this may be a fake network"
     WaveyMood.QR_PEEK -> "Wavey the dolphin, peeking at the QR code"
     WaveyMood.WAVING -> "Wavey the dolphin, waving hello"
     WaveyMood.SAD -> "Wavey the dolphin, sad: this QR code could not be verified"
 }
 
+/** Where the peek starts: the fin tip sits ~15% down the art, so the peek shows fin, face and eyes. */
+private const val PEEK_TOP = 0.12f
+
 @DrawableRes
-private fun animatedArt(mood: WaveyMood): Int? = when (mood) {
-    WaveyMood.WAVING -> R.drawable.wavey_waving
+private fun art(mood: WaveyMood): Int = when (mood) {
+    WaveyMood.NORMAL, WaveyMood.CURIOUS -> R.drawable.wavey_normal
+    WaveyMood.HAPPY, WaveyMood.QR_PEEK -> R.drawable.wavey_happy
+    WaveyMood.UNCOMFORTABLE -> R.drawable.wavey_uncomfortable
+    WaveyMood.CONFUSED -> R.drawable.wavey_confused
     WaveyMood.SCARED -> R.drawable.wavey_scared
     WaveyMood.SAD -> R.drawable.wavey_sad
-    else -> null
+    WaveyMood.WAVING -> R.drawable.wavey_waving
 }
 
 private fun placeholderBadge(mood: WaveyMood): Pair<Int, Pair<Color, Color>>? = when (mood) {
-    WaveyMood.CURIOUS -> R.drawable.ic_help to (UnknownFg to UnknownBg)
-    WaveyMood.UNCOMFORTABLE -> R.drawable.ic_warning to (WarningFg to WarningBg)
+    // Pending = amber clock (CLAUDE.md), so "still checking" never looks like the Unknown "?".
+    WaveyMood.CURIOUS -> R.drawable.ic_schedule to (UnknownFg to UnknownBg)
     else -> null
 }
 
@@ -189,57 +154,6 @@ private fun AnimatedArt(@DrawableRes res: Int, play: Boolean, modifier: Modifier
         update = { it.setImageDrawable(drawable) },
         modifier = modifier,
     )
-}
-
-/**
- * One eye of wavey_normal.webp as fractions of the image (measured from the 512 px art): centre, radii, and
- * the face colour just above and below it, so the closed lid blends in.
- */
-private class Eye(val cx: Float, val cy: Float, val rx: Float, val ry: Float, val top: Color, val bottom: Color)
-
-private val NormalEyes = listOf(
-    Eye(0.362f, 0.503f, 0.048f, 0.038f, Color(0xFFABE8FB), Color(0xFFF8F9FB)),
-    Eye(0.641f, 0.502f, 0.049f, 0.037f, Color(0xFF81D9FB), Color(0xFFEAF2FB)),
-)
-private val LashColor = Color(0xFF141B3A)
-
-/** Closes Wavey's eyes for ~0.2 s every 4 s: a face-coloured lid over each eye plus a curved lash line. */
-@Composable
-private fun Blink(modifier: Modifier) {
-    val closed = rememberInfiniteTransition(label = "wavey-blink").animateFloat(
-        initialValue = 0f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            keyframes {
-                durationMillis = 4000
-                0f at 3400
-                1f at 3470
-                1f at 3550
-                0f at 3630
-            },
-        ),
-        label = "wavey-lid",
-    )
-    // The value is read only while drawing, so a blink redraws this layer without recomposing.
-    Canvas(modifier) {
-        val alpha = closed.value
-        if (alpha <= 0f) return@Canvas
-        val w = size.width
-        val h = size.height
-        NormalEyes.forEach { e ->
-            drawOval(
-                Brush.verticalGradient(listOf(e.top, e.bottom), startY = (e.cy - e.ry) * h, endY = (e.cy + e.ry) * h),
-                topLeft = Offset((e.cx - e.rx) * w, (e.cy - e.ry) * h),
-                size = Size(e.rx * 2 * w, e.ry * 2 * h),
-                alpha = alpha,
-            )
-            val lash = Path().apply {
-                moveTo((e.cx - e.rx * 0.85f) * w, (e.cy + 0.002f) * h)
-                quadraticTo(e.cx * w, (e.cy + e.ry * 0.75f) * h, (e.cx + e.rx * 0.85f) * w, (e.cy + 0.002f) * h)
-            }
-            drawPath(lash, LashColor, alpha = alpha, style = Stroke(width = w * 0.014f, cap = StrokeCap.Round))
-        }
-    }
 }
 
 @Composable

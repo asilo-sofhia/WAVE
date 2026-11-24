@@ -32,7 +32,11 @@ class SignedQrVerifier(
 ) : QrVerifier {
 
     override suspend fun verify(payload: String): QrVerification = withContext(Dispatchers.Default) {
-        val check = WifiQr.verify(payload.trim(), trustedKeys, today())
+        val strict = WifiQr.verify(payload.trim(), trustedKeys, today())
+        // Ordinary router / phone codes are often written loosely (no final ";;", lowercase "wifi:", unescaped ':'
+        // in the password). They are real Wi-Fi codes, so read them like a phone camera would. Signed codes stay strict.
+        val looselyRead = strict.result == QrResult.MALFORMED || (strict.result == QrResult.UNSIGNED && strict.ssid.isNullOrEmpty())
+        val check = if (looselyRead) WifiQr.readOrdinary(payload)?.let { WifiQr.Check(QrResult.UNSIGNED, it) } ?: strict else strict
         val reg = registry.value.registryOrNull
         QrVerification(
             result = check.result,
@@ -64,6 +68,8 @@ class SignedQrVerifier(
         val security = when (check.type) {
             "SAE" -> SecurityType.WPA3_PERSONAL
             "nopass" -> SecurityType.OPEN
+            "WEP" -> SecurityType.WEP
+            null, "" -> if (check.fields["P"].isNullOrEmpty()) SecurityType.OPEN else SecurityType.WPA2_PERSONAL
             else -> SecurityType.WPA2_PERSONAL // "WPA" = WPA2 / WPA2-WPA3 transition
         }
         val inRegistry = registry?.networks?.any { it.ssid == ssid && qrTypeMatches(check.type, it.security) } == true

@@ -65,9 +65,11 @@ fun VerdictChecksCard(network: NetworkUi, modifier: Modifier = Modifier) {
     WaveCard(modifier.fillMaxWidth()) {
         CardTitle("What WAVE checked")
         Text(checksSummary(network), style = MaterialTheme.typography.bodyMedium, color = Slate600)
-        Spacer(Modifier.height(Spacing.m))
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-            network.checks.forEach { CheckRow(it) }
+        Spacer(Modifier.height(Spacing.s))
+        // Same layout as the "Wi-Fi details" and "Your connection" cards: padded rows split by thin dividers.
+        network.checks.forEachIndexed { i, check ->
+            CheckRow(check, Modifier.padding(vertical = Spacing.m))
+            if (i != network.checks.lastIndex) HorizontalDivider(color = Divider)
         }
     }
 }
@@ -86,10 +88,10 @@ fun checksSummary(network: NetworkUi): String {
 }
 
 @Composable
-private fun CheckRow(check: VerdictCheck) {
+private fun CheckRow(check: VerdictCheck, modifier: Modifier = Modifier) {
     val style = check.outcome.style()
     Row(
-        Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
+        modifier.fillMaxWidth().semantics(mergeDescendants = true) {
             contentDescription = "${check.kind.title}: ${style.label}. ${check.detail}"
         },
         verticalAlignment = Alignment.Top,
@@ -114,6 +116,7 @@ private fun CheckRow(check: VerdictCheck) {
                         .padding(horizontal = Spacing.s, vertical = 2.dp),
                 )
             }
+            Spacer(Modifier.height(Spacing.xs))
             Text(check.detail, style = MaterialTheme.typography.bodyMedium, color = Slate600)
         }
     }
