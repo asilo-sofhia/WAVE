@@ -17,7 +17,10 @@ object Routes {
     // Networks ⋮ menu: Network tools and the pages it opens.
     const val NETWORK_TOOLS = "networktools"
     const val RADAR = "radar"
-    const val ADMIN_ACCESS = "adminaccess"
+    /** Manage registry's gate: become a place admin. [ARG_CERT] = an ID card just scanned, to install. */
+    const val ARG_CERT = "cert"
+    const val ADMIN_ACCESS = "adminaccess?$ARG_CERT={$ARG_CERT}"
+    fun adminAccess(cert: String? = null) = if (cert == null) "adminaccess" else "adminaccess?$ARG_CERT=${Uri.encode(cert)}"
     /** Manage registry: the admin's Approved and Blocked lists (after the admin gate), optionally on one tab. */
     const val ARG_TAB = "tab"
     const val SURVEY = "survey?$ARG_TAB={$ARG_TAB}"

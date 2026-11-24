@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,6 +52,7 @@ import com.example.wave.ui.components.WaveBackground
 import com.example.wave.ui.components.WaveTopBar
 import com.example.wave.ui.screens.waveViewModel
 import com.example.wave.ui.theme.Spacing
+import com.example.wave.ui.theme.VerifiedFg
 import com.example.wave.ui.theme.WAVETheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -153,7 +155,15 @@ fun SurveyRoute(
     onBack: () -> Unit,
     onOpenRadar: () -> Unit,
     initialTab: AdminTab = AdminTab.APPROVED,
+    onNeedAdmin: () -> Unit = {},
 ) {
+    val admin by container.adminEnrollment.status.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { container.adminEnrollment.refresh() } // an ID card can expire while the app is open
+    if (!canOpenManageRegistry(admin)) {
+        // Every way in (the gate, Admin Scan's "View details") needs a valid ID card in release builds.
+        LaunchedEffect(Unit) { onNeedAdmin() }
+        return
+    }
     val vm = waveViewModel {
         SurveyViewModel(container.registryDraft, { container.registryRepository.state.value.registryOrNull }, container.exitPathFetcher)
     }
@@ -175,6 +185,7 @@ fun SurveyRoute(
         onPublish = { saveAs.launch("registry.json") },
         onClear = { vm.clear() },
         initialTab = initialTab,
+        adminLabel = admin.adminLabel(),
     )
 }
 
@@ -190,6 +201,8 @@ fun ManageRegistryScreen(
     onDetectProvider: () -> Unit,
     onPublish: () -> Unit,
     onClear: () -> Unit,
+    /** "Admin · <place>" when this phone holds a valid ID card. */
+    adminLabel: String? = null,
     modifier: Modifier = Modifier,
     initialTab: AdminTab = AdminTab.APPROVED,
     onBlock: (bssids: List<String>, ssid: String, reason: String) -> Unit = { _, _, _ -> },
@@ -203,6 +216,14 @@ fun ManageRegistryScreen(
 
     Column(modifier.fillMaxSize()) {
         WaveTopBar(title = "Manage registry", onBack = onBack)
+        if (adminLabel != null) {
+            Text(
+                adminLabel,
+                style = MaterialTheme.typography.labelLarge,
+                color = VerifiedFg,
+                modifier = Modifier.padding(horizontal = Spacing.gutter).padding(bottom = Spacing.s),
+            )
+        }
         if (draft == null) {
             Box(Modifier.fillMaxWidth().padding(top = Spacing.xxl), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             return@Column
