@@ -11,11 +11,13 @@ import java.time.format.DateTimeFormatter
  */
 object RegistryJsonWriter {
 
-    fun write(r: Registry): String = buildString {
+    /** [placeId] makes it a place registry (CONTRACT §7): "place_id" goes right after "key_id". */
+    fun write(r: Registry, placeId: String? = null): String = buildString {
         append("{\n")
         append("  \"schema\": ${str(r.schema)},\n")
         append("  \"version\": ${r.version},\n")
         append("  \"key_id\": ${str(r.keyId)},\n")
+        if (placeId != null) append("  \"place_id\": ${str(placeId)},\n")
         append("  \"issued_at\": ${str(DateTimeFormatter.ISO_INSTANT.format(r.issuedAt))},\n")
         append("  \"expires_at\": ${str(DateTimeFormatter.ISO_INSTANT.format(r.expiresAt))},\n")
         append("  \"campus_asns\": ")

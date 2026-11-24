@@ -13,23 +13,36 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.security.KeyPair
 import java.security.KeyPairGenerator
+import java.security.Signature
 import java.security.spec.ECGenParameterSpec
 import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 
 /** A phone key that lives in memory (the real one is in Android Keystore). */
-class FakeAdminKeys : AdminKeys {
-    var spki: ByteArray? = null
+class FakeAdminKeys : AdminKeys, AdminSigner {
+    var pair: KeyPair? = null
     var created = 0
+    var signed = 0
+    /** Set to make [sign] fail like the Keystore does. */
+    var signFailure: Exception? = null
+    val spki: ByteArray? get() = pair?.public?.encoded
     override fun publicKey(): ByteArray? = spki
-    override fun create(): ByteArray = spki ?: newP256().also { spki = it; created++ }
-    override fun delete() { spki = null }
+    override fun create(): ByteArray = (pair ?: newPair().also { pair = it; created++ }).public.encoded
+    override fun delete() { pair = null }
+    override fun sign(data: ByteArray): ByteArray {
+        signFailure?.let { throw it }
+        val key = pair ?: throw KeyGone()
+        signed++
+        return Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(data); sign() }
+    }
 }
 
-fun newP256(): ByteArray =
-    KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair().public.encoded
+fun newPair(): KeyPair = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+
+fun newP256(): ByteArray = newPair().public.encoded
 
 private fun b64(bytes: ByteArray) = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 

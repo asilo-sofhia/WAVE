@@ -75,6 +75,13 @@ class AdminEnrollment(
     /** Re-checks the ID card's dates (an ID card can expire while the app is installed). */
     fun refresh() = synchronized(lock) { _status.value = statusOf(saved) }
 
+    /** The installed ID card and its exact text, only when it is valid now. */
+    fun validCard(): Pair<AdminCertificate, String>? = synchronized(lock) {
+        val text = saved?.cert ?: return null
+        val (result, cert) = AdminCert.verify(text, rootKeys, clock())
+        if (result == CertResult.VALID && cert != null) cert to text else null
+    }
+
     /** Deletes this phone's admin key and the saved enrolment. */
     fun remove() = synchronized(lock) {
         keys.delete()
