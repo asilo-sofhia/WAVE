@@ -1,7 +1,10 @@
 # WAVE FastAPI server (backend/server). Python >= 3.11.
-# Licenses: fastapi MIT (starlette BSD-3-Clause, pydantic MIT), uvicorn BSD-3-Clause, httpx BSD-3-Clause.
+# Licenses: fastapi MIT (starlette BSD-3-Clause, pydantic MIT), uvicorn BSD-3-Clause, httpx BSD-3-Clause,
+# psycopg LGPL-3.0 (used unmodified as a library; only when DATABASE_URL is set).
 -r requirements.txt
 fastapi>=0.162,<1
 uvicorn[standard]>=0.54
+# place packages in Supabase Postgres
+psycopg[binary]>=3.2
 # tests only (FastAPI's TestClient)
 httpx>=0.28

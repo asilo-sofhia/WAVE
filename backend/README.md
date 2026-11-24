@@ -135,6 +135,8 @@ Render → the **WAVE** Web Service (free instance):
 | Start Command | `uvicorn server.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers` |
 | Health Check Path | `/v1/health` |
 | Environment | `PYTHON_VERSION=3.13.14`, `WAVE_TRUSTED_PROXY=cloudflare` |
+| `WAVE_ROOT_PUBLIC_KEYS` | `wave-root-2026:<public_key_b64url>`, both values copied from `keys/wave-root-2026.public.json`. **Public**, not secret. Without it, place uploads answer `UPLOADS_OFF`. |
+| `DATABASE_URL` | **Secret.** Supabase → **Connect** → **Session pooler** URI, with your database password filled in (Render's free tier has no IPv6, so the "Direct connection" URI won't work). Set it only here: never in Git, chat or screenshots. Without it, places are kept in memory and lost on every restart. |
 
 > **Keep `--no-proxy-headers`.** Without it, uvicorn replaces the connection's address with the left-most `X-Forwarded-For` entry, which the client writes itself, so anyone could pretend to have any IP (tested: `X-Forwarded-For: 8.8.8.8` was reported as Google). With it, the server sees Render's relay on `127.0.0.1`, and `cloudflare` mode trusts only `CF-Connecting-IP` from there. Cloudflare rejects requests that try to set that header themselves (403, error 1000).
 
@@ -164,7 +166,7 @@ curl -H "X-Forwarded-For: 8.8.8.8" https://wave-fkn3.onrender.com/v1/exit-path
 
 **The app side:** the Android app sends `/v1/exit-path` over the Wi-Fi network (never mobile data) and compares `asn` with the registry's `campus_asns`; it downloads `/v1/registry` on start and on Refresh. Its default server address is `wave.serverUrl` in the project's `gradle.properties`.
 
-## Place admins (multi-place publishing, phase 1)
+## Place admins (multi-place publishing)
 Each place (BatStateU, a mall, …) has its own admins, who publish from their phones. The owner certifies each admin **once** with the root key. Design: `docs/superpowers/specs/2026-11-24-multi-place-admins.md`; formats: CONTRACT §6–7.
 
 **1. The root key** (once, by the WAVE owner; passphrase-protected, keep a USB backup offline):
@@ -189,5 +191,15 @@ python signing/wave_sign.py sign-place-registry registry/batstateu.json --admin-
 python signing/wave_sign.py verify-package out/package.json --pub keys/wave-root-2026.public.json   # Result: VALID
 ```
 
+**4. Upload and download** (CONTRACT §4). Phase 4 does the upload from the admin's phone; until then, from the laptop:
+```bash
+curl -X POST --data-binary @out/package.json -H "Content-Type: application/json" https://wave-fkn3.onrender.com/v1/places/batstateu/registry
+# {"result":"STORED","place_id":"batstateu","version":2}  (again: STALE_VERSION; another place's URL: WRONG_PLACE)
+curl https://wave-fkn3.onrender.com/v1/places                       # every place and its latest version
+curl https://wave-fkn3.onrender.com/v1/places/batstateu/registry    # the package, exactly as uploaded
+curl https://wave-fkn3.onrender.com/v1/health                       # "places_storage": "postgres" on Render
+```
+`places_storage: memory` on Render means `DATABASE_URL` is missing. The server creates its table (`wave_places`, row-level security on, so Supabase's public API can't reach it) the first time it is used. To test the Postgres store itself, point `WAVE_TEST_DATABASE_URL` at a **throwaway** database (never the real one) and run `python -m pytest tests/test_places_pg.py`.
 
-Third-party code: `cryptography` (Apache-2.0/BSD), `qrcode` (BSD), `Pillow` (MIT-CMU), `pytest` (MIT); server: `fastapi` (MIT; with `starlette` BSD-3-Clause and `pydantic` MIT), `uvicorn[standard]` (BSD-3-Clause), `httpx` (BSD-3-Clause, tests only). Data: IPtoASN (PDDL).
+
+Third-party code: `cryptography` (Apache-2.0/BSD), `qrcode` (BSD), `Pillow` (MIT-CMU), `pytest` (MIT); server: `fastapi` (MIT; with `starlette` BSD-3-Clause and `pydantic` MIT), `uvicorn[standard]` (BSD-3-Clause), `httpx` (BSD-3-Clause, tests only), `psycopg` (LGPL-3.0, unmodified library). Data: IPtoASN (PDDL).
