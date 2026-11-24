@@ -1,14 +1,18 @@
 """Server settings, read from environment variables. Defaults work when started from backend/."""
 from __future__ import annotations
 
+import base64
+import binascii
 import ipaddress
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 PROXY_MODES = ("none", "cloudflare", "forwarded", "header")
+KEY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 
 
 class ConfigError(ValueError):
@@ -33,6 +37,12 @@ class Settings:
     client_ip_from_right: int = 1
     #: Adds GET /v1/debug/client-ip, which shows the forwarding headers a host sends. Only while setting up a host.
     debug_client_ip: bool = False
+    #: Supabase Postgres connection string for place packages. Secret: never shown in repr, logs or answers.
+    #: Unset: places are kept in memory only (lost on restart).
+    database_url: str | None = field(default=None, repr=False)
+    #: Root public keys that may certify place admins (CONTRACT §6), as (key_id, 32 raw Ed25519 bytes).
+    #: Empty: uploads are off.
+    root_public_keys: tuple[tuple[str, bytes], ...] = ()
 
     def __post_init__(self) -> None:
         if self.trusted_proxy not in PROXY_MODES:
@@ -74,6 +84,10 @@ class Settings:
                 kwargs["client_ip_from_right"] = int(env["WAVE_CLIENT_IP_FROM_RIGHT"].strip())
             except ValueError:
                 raise ConfigError("WAVE_CLIENT_IP_FROM_RIGHT must be a whole number (1 = right-most)") from None
+        if env.get("DATABASE_URL", "").strip():
+            kwargs["database_url"] = env["DATABASE_URL"].strip()
+        if env.get("WAVE_ROOT_PUBLIC_KEYS", "").strip():
+            kwargs["root_public_keys"] = _root_keys(env["WAVE_ROOT_PUBLIC_KEYS"])
         return cls(**kwargs)
 
 
@@ -106,4 +120,25 @@ def _cidrs(value: str) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, .
             out.append(ipaddress.ip_network(part, strict=False))
         except ValueError as exc:
             raise ConfigError(f"WAVE_TRUSTED_PROXY_CIDRS: {part!r} is not an address range like 10.0.0.0/8") from exc
+    return tuple(out)
+
+
+def _root_keys(value: str) -> tuple[tuple[str, bytes], ...]:
+    """WAVE_ROOT_PUBLIC_KEYS: "key_id:public_key_b64url[,key_id:public_key_b64url]" (from keys/<id>.public.json)."""
+    out = []
+    for part in value.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        key_id, sep, key = part.partition(":")
+        key_id, key = key_id.strip(), key.strip()
+        if not sep or not KEY_ID_RE.match(key_id):
+            raise ConfigError("WAVE_ROOT_PUBLIC_KEYS: each entry must be key_id:public_key_b64url")
+        try:
+            raw = base64.urlsafe_b64decode(key + "=" * (-len(key) % 4))
+        except (binascii.Error, ValueError):
+            raw = b""
+        if len(raw) != 32:
+            raise ConfigError(f"WAVE_ROOT_PUBLIC_KEYS: the key for {key_id!r} is not a 32-byte Ed25519 public key")
+        out.append((key_id, raw))
     return tuple(out)

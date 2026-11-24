@@ -1,5 +1,8 @@
-"""WAVE server (docs/CONTRACT.md section 4). Read-only: three GET endpoints, no database, no keys, no CORS.
-(A fourth, /v1/debug/client-ip, exists only while WAVE_DEBUG_CLIENT_IP=1, for setting up a new host.)
+"""WAVE server (docs/CONTRACT.md section 4). No private keys, no CORS.
+GET /v1/registry, /v1/exit-path and /v1/health, plus place packages: place admins upload signed packages
+(checked from the root key down) and phones list and download them. Packages are kept in Supabase Postgres
+when DATABASE_URL is set, otherwise in memory.
+(/v1/debug/client-ip exists only while WAVE_DEBUG_CLIENT_IP=1, for setting up a new host.)
 
 Run from backend/:  uvicorn server.main:app --host 127.0.0.1 --port 8000
 """
@@ -9,8 +12,14 @@ import datetime as dt
 import logging
 from contextlib import asynccontextmanager
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
+from signing import wave_sign as ws
+
+from . import places as pl
 from .asn_db import AsnDatabase
 from .client_ip import resolve
 from .config import Settings
@@ -20,9 +29,37 @@ from .registry_store import RegistryStore, RegistryUnavailable, b64url
 log = logging.getLogger("uvicorn.error")
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+#: HTTP status for each upload result (CONTRACT §4).
+UPLOAD_STATUS = {
+    pl.STORED: 200,
+    ws.MALFORMED: 400,
+    pl.TOO_LARGE: 413,
+    ws.UNKNOWN_KEY: 403, ws.BAD_SIGNATURE: 403, ws.NOT_YET_VALID: 403, ws.EXPIRED: 403, ws.WRONG_PLACE: 403,
+    pl.STALE_VERSION: 409,
+    pl.UPLOADS_OFF: 503, pl.STORAGE_UNAVAILABLE: 503,
+}
+NO_STORE = {"Cache-Control": "no-store"}
+
+
+def _answer(result: str, **extra) -> JSONResponse:
+    return JSONResponse({"result": result, **extra}, status_code=UPLOAD_STATUS.get(result, 400), headers=NO_STORE)
+
+
+def _place_store(settings: Settings) -> pl.PlaceStore:
+    if settings.database_url:
+        from .places_pg import PostgresPlaceStore  # needs psycopg, only when a database is configured
+        return PostgresPlaceStore(settings.database_url)
+    log.warning("DATABASE_URL is not set: place packages are kept in memory only and lost on restart.")
+    return pl.MemoryPlaceStore()
+
+
+def create_app(settings: Settings | None = None, place_store: pl.PlaceStore | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     registry = RegistryStore(settings.registry_file, settings.signature_file)
+    store = place_store if place_store is not None else _place_store(settings)
+    root_keys = {kid: Ed25519PublicKey.from_public_bytes(raw) for kid, raw in settings.root_public_keys}
+    if not root_keys:
+        log.warning("WAVE_ROOT_PUBLIC_KEYS is not set: place uploads are off (%s).", pl.UPLOADS_OFF)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -53,7 +90,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "registry_version": registry_version,
             "asn_db_loaded": asn_db is not None,
             "asn_db_date": asn_db.date if asn_db else None,
+            "places_storage": store.kind,
         }
+
+    @app.post("/v1/places/{place_id}/registry")
+    async def upload_place_registry(place_id: str, request: Request) -> JSONResponse:
+        if not root_keys:
+            return _answer(pl.UPLOADS_OFF)
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > pl.MAX_UPLOAD_BYTES:
+            return _answer(pl.TOO_LARGE)
+        body = bytearray()
+        async for chunk in request.stream():  # stop reading as soon as it is too big
+            body += chunk
+            if len(body) > pl.MAX_UPLOAD_BYTES:
+                return _answer(pl.TOO_LARGE)
+        now = dt.datetime.now(dt.timezone.utc)
+        result, record = await run_in_threadpool(pl.check_upload, place_id, bytes(body), root_keys, now)
+        if record is None:
+            return _answer(result)
+        try:
+            stored = await run_in_threadpool(store.put, record)
+        except pl.StorageUnavailable as exc:
+            log.warning("place storage: %s", exc)
+            return _answer(pl.STORAGE_UNAVAILABLE)
+        if not stored:
+            return _answer(pl.STALE_VERSION)
+        log.info("Stored place %s version %d (cert %s)", record.place_id, record.version, record.cert_id)
+        return _answer(pl.STORED, place_id=record.place_id, version=record.version)
+
+    @app.get("/v1/places")
+    def list_places() -> JSONResponse:
+        try:
+            records = store.places()
+        except pl.StorageUnavailable as exc:
+            log.warning("place storage: %s", exc)
+            return _answer(pl.STORAGE_UNAVAILABLE)
+        return JSONResponse({"places": [r.summary() for r in records]}, headers=NO_STORE)
+
+    @app.get("/v1/places/{place_id}/registry")
+    def get_place_registry(place_id: str) -> JSONResponse:
+        try:
+            record = store.get(place_id)
+        except pl.StorageUnavailable as exc:
+            log.warning("place storage: %s", exc)
+            return _answer(pl.STORAGE_UNAVAILABLE)
+        if record is None:
+            return JSONResponse({"result": "NOT_FOUND"}, status_code=404, headers=NO_STORE)
+        return JSONResponse(record.package, headers=NO_STORE)
 
     @app.get("/v1/registry")
     def get_registry() -> dict:

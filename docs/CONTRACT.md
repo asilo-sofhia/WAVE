@@ -165,7 +165,35 @@ Header `Cache-Control: no-store`. **The app must send this request over the Wi-F
 App logic: the check runs only on networks the registry already marks **Verified** (an unregistered network never exits through campus, so a mismatch there says nothing). `asn` in registry `campus_asns` → OK; otherwise → Warning. No usable answer (error, timeout, or `asn` null) 3 times in 30 s → **Server unreachable** – "don't enter passwords yet". The verdict stays as it is. A registry with no real campus ASN (empty, or only the placeholder `0`) can't judge anything: the app doesn't ask the server and shows the same Unreachable state, never Warning.
 
 ### `GET /v1/health`
-`{ "status": "ok" }`
+```json
+{ "status": "ok", "registry_loaded": true, "registry_version": 3, "asn_db_loaded": true,
+  "asn_db_date": "2026-11-23", "places_storage": "postgres" }
+```
+`places_storage` is `postgres` when place packages are kept in Supabase, or `memory` (lost on restart) when `DATABASE_URL` is not set.
+
+### Place packages (§7)
+Place admins upload their signed package; phones list the places and download each package. **Phones check every package themselves (§7).** The server's check only keeps junk out. All three answers carry `Cache-Control: no-store`.
+
+**`POST /v1/places/{place_id}/registry`**: the body is the package JSON (§7), at most **256 KiB**. Extra fields are dropped. The server checks it as in §7, including the upload-time checks, then stores it only if its `version` is higher than the stored one for that place. Answer: `{"result": "<RESULT>"}`, plus `"place_id"` and `"version"` when stored.
+
+| `result` | HTTP | Meaning |
+|---|---|---|
+| `STORED` | 200 | Saved; phones get it on their next sync |
+| `MALFORMED` | 400 | Not a valid package (or `version` above 2^53 − 1) |
+| `TOO_LARGE` | 413 | Body over 256 KiB |
+| `UNKNOWN_KEY`, `BAD_SIGNATURE`, `NOT_YET_VALID`, `EXPIRED` | 403 | The certificate or signature check failed (§6–7) |
+| `WRONG_PLACE` | 403 | The certificate, package, registry or URL name different places |
+| `STALE_VERSION` | 409 | The stored version is the same or higher |
+| `UPLOADS_OFF` | 503 | The server has no root keys set |
+| `STORAGE_UNAVAILABLE` | 503 | The database can't be reached; try again later |
+
+**`GET /v1/places`**: every place's latest package, sorted by `place_id`:
+```json
+{ "places": [ { "place_id": "batstateu", "place_name": "Batangas State University", "version": 4,
+                "updated_at": "2026-11-24T08:00:00Z" } ] }
+```
+
+**`GET /v1/places/{place_id}/registry`**: the stored package exactly as uploaded (§7), or 404 `{"result": "NOT_FOUND"}`. `STORAGE_UNAVAILABLE` (503) when the database can't be reached.
 
 ---
 
