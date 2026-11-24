@@ -19,12 +19,13 @@ import com.example.wave.ui.screens.permission.PermissionRoute
 import com.example.wave.ui.screens.qrresult.QrResultRoute
 import com.example.wave.ui.screens.scanqr.ScanQrRoute
 import com.example.wave.ui.screens.splash.SplashRoute
-import com.example.wave.ui.screens.tools.AdminAccessScreen
+import com.example.wave.ui.screens.tools.AdminAccessRoute
 import com.example.wave.ui.screens.tools.AdminScanRoute
 import com.example.wave.ui.screens.tools.AdminTab
 import com.example.wave.ui.screens.tools.NetworkToolsScreen
 import com.example.wave.ui.screens.tools.RadarRoute
 import com.example.wave.ui.screens.tools.SurveyRoute
+import com.example.wave.verify.AdminCert
 
 @Composable
 fun WaveNavHost(
@@ -76,7 +77,7 @@ fun WaveNavHost(
             NetworkToolsScreen(
                 onBack = { nav.popBackStack() },
                 onOpenRadar = { nav.navigate(Routes.RADAR) },
-                onManageRegistry = { nav.navigate(Routes.ADMIN_ACCESS) },
+                onManageRegistry = { nav.navigate(Routes.adminAccess()) },
             )
         }
         composable(Routes.RADAR) {
@@ -99,13 +100,19 @@ fun WaveNavHost(
                 onViewDetails = { tab -> nav.navigate(Routes.survey(tab)) },
             )
         }
-        composable(Routes.ADMIN_ACCESS) {
-            AdminAccessScreen(
+        composable(
+            Routes.ADMIN_ACCESS,
+            arguments = listOf(navArgument(Routes.ARG_CERT) { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) { entry ->
+            AdminAccessRoute(
+                container = container,
+                certText = entry.arguments?.getString(Routes.ARG_CERT),
                 onBack = { nav.popBackStack() },
                 // The access page is replaced by Manage registry, so Back from it returns to Network tools.
                 onContinue = {
                     nav.navigate(Routes.survey()) { popUpTo(Routes.NETWORK_TOOLS) }
                 },
+                onScanCard = { nav.navigate(Routes.SCAN_QR) },
             )
         }
         composable(
@@ -134,7 +141,15 @@ fun WaveNavHost(
         composable(Routes.SCAN_QR) {
             ScanQrRoute(
                 container = container,
-                onScanned = { nav.navigate(Routes.qrResult(it)) },
+                onScanned = { payload ->
+                    if (payload.trim().startsWith(AdminCert.PREFIX)) {
+                        // An admin ID card, not a Wi-Fi code: install it on the admin page (replacing the one that
+                        // sent the admin here, so Back doesn't land on a stale copy).
+                        nav.navigate(Routes.adminAccess(payload.trim())) { popUpTo(Routes.ADMIN_ACCESS) { inclusive = true } }
+                    } else {
+                        nav.navigate(Routes.qrResult(payload))
+                    }
+                },
                 onBack = { nav.navigateToTab(Tab.HOME) },
             )
         }

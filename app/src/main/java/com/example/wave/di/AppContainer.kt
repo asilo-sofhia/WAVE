@@ -7,6 +7,8 @@ import com.example.wave.data.NetworkClassifier
 import com.example.wave.data.QrVerifier
 import com.example.wave.data.RegistryRepository
 import com.example.wave.data.ScanRepository
+import com.example.wave.data.admin.AdminEnrollment
+import com.example.wave.data.admin.KeystoreAdminKeys
 import com.example.wave.data.admin.RegistryDraftStore
 import com.example.wave.data.admin.SignalTracker
 import com.example.wave.data.exitpath.ExitPathFetcher
@@ -99,6 +101,9 @@ class AppContainer(context: Context) {
     /** Campus admin tools: the registry draft (saved on this phone) and the signal seen per access point this session. */
     val registryDraft = RegistryDraftStore(File(context.filesDir, "admin/draft.json"))
     val signalTracker = SignalTracker()
+
+    /** This phone as a place admin: its own Keystore key and the owner's ID card (CONTRACT §6). */
+    val adminEnrollment = AdminEnrollment(File(context.filesDir, "admin/enrolment.json"), KeystoreAdminKeys(context))
 
     /** Asks the server for its registry now (debug menu's Update registry button). */
     val registrySync: suspend () -> RegistrySync = { syncingRegistry.sync(force = true) }

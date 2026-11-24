@@ -51,7 +51,7 @@ fun NetworkToolsScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.m),
         ) {
             ToolCard(R.drawable.ic_radar, "Wi-Fi radar", "View nearby signal strength", onOpenRadar)
-            ToolCard(R.drawable.ic_shield_lock, "Manage registry", "Campus admin access required", onManageRegistry)
+            ToolCard(R.drawable.ic_shield_lock, "Manage registry", "Place admin ID card required", onManageRegistry)
         }
     }
 }
