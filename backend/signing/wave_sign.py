@@ -25,11 +25,13 @@ import getpass
 import json
 import os
 import re
+import secrets
 import sys
 from pathlib import Path
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import serialization
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
@@ -210,7 +212,7 @@ def validate_registry(data: bytes) -> tuple[dict, list[str], list[str]]:
     warnings: list[str] = []
     try:
         reg = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError and huge ints
         return {}, [f"not valid UTF-8 JSON: {exc}"], []
     if not isinstance(reg, dict):
         return {}, ["top level must be a JSON object"], []
@@ -223,6 +225,10 @@ def validate_registry(data: bytes) -> tuple[dict, list[str], list[str]]:
     key_id = reg.get("key_id")
     if not isinstance(key_id, str) or not KEY_ID_RE.match(key_id):
         errors.append("key_id: missing or invalid")
+    if "place_id" in reg:  # optional: only place registries (CONTRACT §7) have it
+        place = reg["place_id"]
+        if not isinstance(place, str) or not PLACE_ID_RE.match(place):
+            errors.append("place_id: lowercase letters, digits and '-', max 32 chars")
     issued = _parse_utc(reg.get("issued_at"), "issued_at", errors)
     expires = _parse_utc(reg.get("expires_at"), "expires_at", errors)
     if issued and expires and expires <= issued:
@@ -251,7 +257,7 @@ def validate_registry(data: bytes) -> tuple[dict, list[str], list[str]]:
         ssid = net.get("ssid")
         if not isinstance(ssid, str) or not ssid or len(ssid.encode("utf-8")) > 32:
             errors.append(f"{where}.ssid: 1-32 bytes required")
-        if net.get("security") not in SECURITY_VALUES:
+        if not isinstance(net.get("security"), str) or net.get("security") not in SECURITY_VALUES:
             errors.append(f"{where}.security: must be one of {sorted(SECURITY_VALUES)}")
         aps = net.get("aps")
         if not isinstance(aps, list) or not aps:
@@ -273,7 +279,7 @@ def validate_registry(data: bytes) -> tuple[dict, list[str], list[str]]:
                     warnings.append(
                         f"{aw}.bssid {bssid} is locally administered - OK only if the real AP really uses it"
                     )
-            if ap.get("band") not in BAND_VALUES:
+            if not isinstance(ap.get("band"), str) or ap.get("band") not in BAND_VALUES:
                 errors.append(f"{aw}.band: must be one of {sorted(BAND_VALUES)}")
             ch = ap.get("channel")
             if not isinstance(ch, int) or ch <= 0:
@@ -520,6 +526,232 @@ def write_qr_png(raw: str, out: Path, caption: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Place admins (CONTRACT §6-7): enrolment requests, root-signed certificates, place registry packages
+# ---------------------------------------------------------------------------
+CERT_DOMAIN = b"WAVE-CERT-v1\n"
+CERT_SCHEMA = "wave-admin-cert/1"
+REQUEST_PREFIX = "WAVEREQ:1:"
+CERT_PREFIX = "WAVECERT:1:"
+ADMIN_KEY_ALG = "ES256"
+PLACE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+CERT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
+NOT_YET_VALID = "NOT_YET_VALID"
+WRONG_PLACE = "WRONG_PLACE"
+CERT_FIELDS = ("schema", "cert_id", "place_id", "place_name", "admin_name", "admin_key_alg",
+               "admin_public_key", "issued_at", "expires_at", "root_key_id")
+
+
+def _check_place_id(place_id: object) -> str:
+    if not isinstance(place_id, str) or not PLACE_ID_RE.match(place_id):
+        raise ValueError(f"place id must be lowercase letters, digits and '-', max 32 chars (got {place_id!r})")
+    return place_id
+
+
+def _check_name(value: object, what: str) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > 64:
+        raise ValueError(f"{what} must be 1-64 characters")
+    return value
+
+
+def admin_public_key_b64(pub: ec.EllipticCurvePublicKey) -> str:
+    """base64url of the P-256 SubjectPublicKeyInfo DER: the form Android Keystore exports."""
+    if not isinstance(pub, ec.EllipticCurvePublicKey) or not isinstance(pub.curve, ec.SECP256R1):
+        raise TypeError("admin keys must be P-256 (ES256)")
+    return b64u_encode(pub.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo))
+
+
+def load_admin_public_key(text: str) -> ec.EllipticCurvePublicKey:
+    try:
+        key = serialization.load_der_public_key(b64u_decode(text))
+    except (ValueError, TypeError, UnsupportedAlgorithm) as exc:
+        raise ValueError(f"admin public key is not a valid key ({exc})") from exc
+    if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256R1):
+        raise ValueError("admin public key must be P-256 (ES256)")
+    return key
+
+
+def _fmt(t: dt.datetime) -> str:
+    return t.astimezone(dt.timezone.utc).strftime(TIME_FMT)
+
+
+def _parse_time(value: object) -> dt.datetime:
+    if not isinstance(value, str):
+        raise ValueError("time must be a string")
+    return dt.datetime.strptime(value, TIME_FMT).replace(tzinfo=dt.timezone.utc)
+
+
+def _compact(obj: dict) -> bytes:
+    return json.dumps(obj, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8")
+
+
+def make_admin_request(admin_name: str, place_id: str, pub: ec.EllipticCurvePublicKey) -> str:
+    """What an admin phone shares to ask for a certificate: its name, the place, and its public key."""
+    body = {
+        "admin_name": _check_name(admin_name, "admin name"),
+        "place_id": _check_place_id(place_id),
+        "admin_key_alg": ADMIN_KEY_ALG,
+        "admin_public_key": admin_public_key_b64(pub),
+    }
+    return REQUEST_PREFIX + b64u_encode(_compact(body))
+
+
+def parse_admin_request(text: str) -> dict:
+    """The request's fields, checked. Raises ValueError."""
+    text = text.strip()
+    if not text.startswith(REQUEST_PREFIX):
+        raise ValueError(f"not a WAVE admin request (must start with {REQUEST_PREFIX})")
+    try:
+        body = json.loads(b64u_decode(text[len(REQUEST_PREFIX):]).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError(f"request is not readable ({exc})") from exc
+    if not isinstance(body, dict):
+        raise ValueError("request must be an object")
+    _check_name(body.get("admin_name"), "admin name")
+    _check_place_id(body.get("place_id"))
+    if body.get("admin_key_alg") != ADMIN_KEY_ALG:
+        raise ValueError(f"admin key algorithm must be {ADMIN_KEY_ALG}")
+    key = body.get("admin_public_key")
+    load_admin_public_key(key if isinstance(key, str) else "")
+    return {k: body[k] for k in ("admin_name", "place_id", "admin_key_alg", "admin_public_key")}
+
+
+def certify_admin(request: dict, place_id: str, place_name: str, days: int, root_key_id: str,
+                  root_key: Ed25519PrivateKey, now: dt.datetime | None = None) -> str:
+    """Root-sign a certificate: this phone key may sign registries for [place_id] for [days] days."""
+    if request["place_id"] != place_id:
+        raise ValueError(f"the request asks for place {request['place_id']!r}, not {place_id!r}")
+    _check_name(place_name, "place name")
+    if not isinstance(days, int) or days < 1:
+        raise ValueError("days must be 1 or more")
+    issued = (now or dt.datetime.now(dt.timezone.utc)).replace(microsecond=0)
+    cert = {
+        "schema": CERT_SCHEMA,
+        "cert_id": secrets.token_hex(8),
+        "place_id": place_id,
+        "place_name": place_name,
+        "admin_name": request["admin_name"],
+        "admin_key_alg": ADMIN_KEY_ALG,
+        "admin_public_key": request["admin_public_key"],
+        "issued_at": _fmt(issued),
+        "expires_at": _fmt(issued + dt.timedelta(days=days)),
+        "root_key_id": root_key_id,
+    }
+    cert_bytes = _compact(cert)
+    return CERT_PREFIX + b64u_encode(cert_bytes) + "." + b64u_encode(root_key.sign(CERT_DOMAIN + cert_bytes))
+
+
+def verify_cert(text: str, root_keys: dict[str, Ed25519PublicKey], at: dt.datetime) -> tuple[str, dict]:
+    """(result, certificate). Order: format -> root key known -> root signature -> valid at [at]."""
+    text = text.strip()
+    try:
+        if not text.startswith(CERT_PREFIX):
+            raise ValueError("no WAVECERT prefix")
+        body_b64, sig_b64 = text[len(CERT_PREFIX):].split(".")
+        cert_bytes = b64u_decode(body_b64)
+        signature = b64u_decode(sig_b64)
+        cert = json.loads(cert_bytes.decode("utf-8"))
+        if not isinstance(cert, dict) or any(f not in cert for f in CERT_FIELDS):
+            raise ValueError("missing fields")
+        if cert["schema"] != CERT_SCHEMA or cert["admin_key_alg"] != ADMIN_KEY_ALG:
+            raise ValueError("wrong schema or algorithm")
+        if not isinstance(cert["cert_id"], str) or not CERT_ID_RE.match(cert["cert_id"]):
+            raise ValueError("bad cert_id")
+        if not isinstance(cert["root_key_id"], str):
+            raise ValueError("bad root_key_id")
+        _check_place_id(cert["place_id"])
+        _check_name(cert["place_name"], "place name")
+        _check_name(cert["admin_name"], "admin name")
+        load_admin_public_key(cert["admin_public_key"])
+        issued, expires = _parse_time(cert["issued_at"]), _parse_time(cert["expires_at"])
+        if expires <= issued:
+            raise ValueError("expires_at must be after issued_at")
+    except (ValueError, TypeError, UnicodeDecodeError, RecursionError, UnsupportedAlgorithm) as exc:
+        return MALFORMED, {"why": str(exc)[:200]}
+    root = root_keys.get(cert["root_key_id"])
+    if root is None:
+        return UNKNOWN_KEY, cert
+    if not verify_raw(root, signature, CERT_DOMAIN + cert_bytes):
+        return BAD_SIGNATURE, cert
+    if at < issued:
+        return NOT_YET_VALID, cert
+    if at > expires:
+        return EXPIRED, cert
+    return VALID, cert
+
+
+PACKAGE_FIELDS = ("place_id", "registry_b64url", "signature_b64url", "cert")
+
+
+def sign_place_registry(registry_bytes: bytes, admin_key: ec.EllipticCurvePrivateKey, cert_text: str) -> dict:
+    """Sign a place registry with an admin's P-256 key and bundle it with the certificate (CONTRACT §7).
+    On a real admin this happens inside the phone's secure hardware; this is the laptop version for tests."""
+    reg = json.loads(registry_bytes.decode("utf-8"))
+    signature = admin_key.sign(REGISTRY_DOMAIN + registry_bytes, ec.ECDSA(hashes.SHA256()))
+    return {
+        "place_id": reg.get("place_id"),
+        "registry_b64url": b64u_encode(registry_bytes),
+        "signature_b64url": b64u_encode(signature),
+        "cert": cert_text.strip(),
+    }
+
+
+UPLOAD_CLOCK_SKEW = dt.timedelta(minutes=5)
+
+
+def verify_package(package: dict, root_keys: dict[str, Ed25519PublicKey],
+                   now: dt.datetime | None = None) -> tuple[str, dict | None]:
+    """(result, registry). Checked from the root down: shape and registry format -> certificate (valid when the
+    registry was issued, and the registry doesn't outlive it) -> places agree -> the registry names its
+    certificate -> the admin's signature. The server passes [now]: the certificate must also be valid at upload
+    time and the registry can't be issued in the future. Never raises: anything odd is MALFORMED."""
+    try:
+        return _verify_package(package, root_keys, now)
+    except Exception:  # noqa: BLE001 - uploads come from anyone; a crash must not become a server error
+        return MALFORMED, None
+
+
+def _verify_package(package: dict, root_keys: dict[str, Ed25519PublicKey],
+                    now: dt.datetime | None) -> tuple[str, dict | None]:
+    try:
+        if not isinstance(package, dict) or any(not isinstance(package.get(f), str) for f in PACKAGE_FIELDS):
+            raise ValueError("package needs place_id, registry_b64url, signature_b64url and cert")
+        registry_bytes = b64u_decode(package["registry_b64url"])
+        signature = b64u_decode(package["signature_b64url"])
+    except ValueError:
+        return MALFORMED, None
+    reg, errors, _ = validate_registry(registry_bytes)
+    if errors or "place_id" not in reg:
+        return MALFORMED, None
+    issued = _parse_time_lenient(reg["issued_at"])
+    status, cert = verify_cert(package["cert"], root_keys, at=issued)
+    if status != VALID:
+        return status, None
+    if _parse_time_lenient(reg["expires_at"]) > _parse_time(cert["expires_at"]):
+        return EXPIRED, None  # backdating issued_at must not let a list outlive its certificate
+    if now is not None:
+        status, _ = verify_cert(package["cert"], root_keys, at=now)
+        if status != VALID:
+            return status, None
+        if issued > now + UPLOAD_CLOCK_SKEW:
+            return NOT_YET_VALID, None
+    if not (cert["place_id"] == package["place_id"] == reg["place_id"]):
+        return WRONG_PLACE, None
+    if reg["key_id"] != cert["cert_id"]:
+        return MALFORMED, None
+    try:
+        load_admin_public_key(cert["admin_public_key"]).verify(signature, REGISTRY_DOMAIN + registry_bytes, ec.ECDSA(hashes.SHA256()))
+    except InvalidSignature:
+        return BAD_SIGNATURE, None
+    return VALID, reg
+
+
+def _parse_time_lenient(value: str) -> dt.datetime:
+    """A registry time (ISO 8601 UTC ending in Z) as an aware datetime."""
+    return dt.datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(dt.timezone.utc)
+
+
+# ---------------------------------------------------------------------------
 # Test vectors for the Kotlin verifier
 # ---------------------------------------------------------------------------
 RFC8032_TEST1 = {
@@ -614,12 +846,18 @@ def make_test_vectors() -> dict:
         assert got == expect, f"{name}: expected {expect}, got {got}"
         out_qr.append({"name": name, "raw": raw, "expect": expect})
 
+    root_kid = "wave-root-test"
+    root_key = Ed25519PrivateKey.generate()
+    cert_cases, package_cases = _admin_vectors(root_kid, root_key, {root_kid: root_key.public_key()}, kid, key)
+
     return {
         "about": "Generated by wave_sign.py test-vectors. Uses a throwaway TEST key - never the real key. "
                  "Copy to app/src/test/resources/ and check that the Kotlin verifier gives the same results.",
         "contract_version": 1,
-        "domains": {"registry": REGISTRY_DOMAIN.decode(), "qr": QR_DOMAIN.decode()},
+        "domains": {"registry": REGISTRY_DOMAIN.decode(), "qr": QR_DOMAIN.decode(), "cert": CERT_DOMAIN.decode()},
         "public_keys": {kid: public_key_b64(key)},
+        # Certificates are checked only against these root keys, never against the registry/QR keys above.
+        "root_public_keys": {root_kid: public_key_b64(root_key)},
         "qr_today": today.strftime("%Y%m%d"),
         "rfc8032_test1": {
             "public_key_b64url": b64u_encode(bytes.fromhex(RFC8032_TEST1["public_hex"])),
@@ -633,7 +871,78 @@ def make_test_vectors() -> dict:
             for c in registry_cases
         ],
         "qr_cases": out_qr,
+        "cert_cases": cert_cases,
+        "package_cases": package_cases,
     }
+
+
+def _admin_vectors(kid: str, root_key: Ed25519PrivateKey, root_keys: dict,
+                   registry_kid: str, registry_key: Ed25519PrivateKey) -> tuple[list, list]:
+    """Certificate and place-package cases (CONTRACT §6-7), signed with a throwaway test root key that is separate
+    from the registry/QR test key (a certificate signed by a registry key must be UNKNOWN_KEY)."""
+    t0 = dt.datetime(2026, 11, 24, 0, 0, 0, tzinfo=dt.timezone.utc)
+    admin = ec.generate_private_key(ec.SECP256R1())
+    other = ec.generate_private_key(ec.SECP256R1())
+    req = parse_admin_request(make_admin_request("Test Admin", "testplace", admin.public_key()))
+    cert = certify_admin(req, "testplace", "Test Place", 365, kid, root_key, now=t0)
+    short = certify_admin(req, "testplace", "Test Place", 1, kid, root_key, now=t0)
+    stranger = Ed25519PrivateKey.generate()
+    unknown_root = certify_admin(req, "testplace", "Test Place", 365, "someone-else", stranger, now=t0)
+    by_registry_key = certify_admin(req, "testplace", "Test Place", 365, registry_kid, registry_key, now=t0)
+    body, sig = cert[len(CERT_PREFIX):].split(".")
+    tampered = json.loads(b64u_decode(body))
+    tampered["place_id"] = "otherplace"
+    tampered_text = CERT_PREFIX + b64u_encode(_compact(tampered)) + "." + sig
+
+    def at(days: float) -> str:
+        return _fmt(t0 + dt.timedelta(days=days))
+
+    certs = [
+        ("valid", cert, at(1), VALID),
+        ("tampered_place", tampered_text, at(1), BAD_SIGNATURE),
+        ("unknown_root", unknown_root, at(1), UNKNOWN_KEY),
+        ("signed_by_registry_key", by_registry_key, at(1), UNKNOWN_KEY),
+        ("expired", short, at(2), EXPIRED),
+        ("not_yet_valid", cert, _fmt(t0 - dt.timedelta(minutes=1)), NOT_YET_VALID),
+        ("malformed", "WAVECERT:1:not-a-cert", at(1), MALFORMED),
+    ]
+    out_certs = []
+    for name, text, when, expect in certs:
+        got, _ = verify_cert(text, root_keys, at=_parse_time(when))
+        assert got == expect, f"cert {name}: expected {expect}, got {got}"
+        out_certs.append({"name": name, "cert": text, "at": when, "expect": expect})
+
+    def place_registry(place: str, key_id: str, issued_days: float, expires_days: float = 200) -> bytes:
+        reg = {
+            "schema": "wave-registry/1", "version": 2, "key_id": key_id, "place_id": place,
+            "issued_at": at(issued_days), "expires_at": at(expires_days),
+            "campus_asns": [{"asn": 64500, "name": "Example campus ISP (documentation ASN)"}],
+            "networks": [{"ssid": "TEST-PLACE-WIFI", "security": "WPA2-PSK", "aps": [
+                {"bssid": "00:00:5e:00:53:10", "band": "5GHz", "channel": 36, "building": "Main",
+                 "rssi_min": -85, "rssi_max": -30}]}],
+            "blocked": [],
+        }
+        return json.dumps(reg, indent=2).encode("utf-8")
+
+    cert_id = json.loads(b64u_decode(body))["cert_id"]
+    good = sign_place_registry(place_registry("testplace", cert_id, 1), admin, cert)
+    tampered_reg = b64u_decode(good["registry_b64url"]).replace(b"TEST-PLACE-WIFI", b"EVIL-PLACE-WIFI")
+    packages = [
+        ("valid", good, VALID),
+        ("wrong_place", sign_place_registry(place_registry("otherplace", cert_id, 1), admin, cert), WRONG_PLACE),
+        ("signed_by_other_admin", sign_place_registry(place_registry("testplace", cert_id, 1), other, cert), BAD_SIGNATURE),
+        ("tampered_registry", dict(good, registry_b64url=b64u_encode(tampered_reg)), BAD_SIGNATURE),
+        ("cert_expired_before_issue", sign_place_registry(place_registry("testplace", cert_id, 3), admin, short), EXPIRED),
+        ("outlives_certificate", sign_place_registry(place_registry("testplace", cert_id, 1, expires_days=400), admin, cert), EXPIRED),
+        ("key_id_not_cert_id", sign_place_registry(place_registry("testplace", "someone-else", 1), admin, cert), MALFORMED),
+    ]
+    out_packages = []
+    for name, pkg, expect in packages:
+        got, _ = verify_package(pkg, root_keys)
+        assert got == expect, f"package {name}: expected {expect}, got {got}"
+        # As a JSON string, so tools that scan the file for registry cases don't mistake it for one.
+        out_packages.append({"name": name, "package_json": json.dumps(pkg, sort_keys=True), "expect": expect})
+    return out_certs, out_packages
 
 
 # ---------------------------------------------------------------------------
@@ -716,12 +1025,103 @@ def _cmd_verify_qr(a):
     sys.exit(0 if result == VALID else 1)
 
 
+def _read_text_arg(value: str) -> str:
+    """A value given on the command line, or @file to read it from a file."""
+    return Path(value[1:]).read_text(encoding="utf-8").strip() if value.startswith("@") else value.strip()
+
+
+def _cmd_admin_request(a):
+    """TEST HELPER: on a real admin this key is made in the phone's secure hardware (phase 3)."""
+    out = Path(a.out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    n = 1
+    while (out / f"admin-{a.place}-{n}.private.pem").exists():
+        n += 1
+    path = out / f"admin-{a.place}-{n}.private.pem"
+    key = ec.generate_private_key(ec.SECP256R1())
+    try:
+        request = make_admin_request(a.name, a.place, key.public_key())
+    except (ValueError, TypeError) as exc:
+        raise WaveError(str(exc)) from exc
+    _write_private_file(path, key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                                serialization.NoEncryption()))
+    print(f"Test admin key: {path}   <- test only; real admins keep theirs in the phone", file=sys.stderr)
+    print(request)
+
+
+def _cmd_certify_admin(a):
+    try:
+        request = parse_admin_request(_read_text_arg(a.request))
+    except ValueError as exc:
+        raise WaveError(str(exc)) from exc
+    root_id, root_key = load_private_key(Path(a.key))
+    try:
+        cert = certify_admin(request, a.place, a.place_name, a.days, root_id, root_key)
+    except ValueError as exc:
+        raise WaveError(str(exc)) from exc
+    _, info = verify_cert(cert, {root_id: root_key.public_key()}, at=dt.datetime.now(dt.timezone.utc))
+    print(f"Certified {info['admin_name']} for {info['place_name']} ({info['place_id']}) until {info['expires_at']}",
+          file=sys.stderr)
+    if a.png:
+        write_qr_png(cert, Path(a.png), f"WAVE admin: {info['admin_name']} - {info['place_name']}")
+        print(f"Certificate QR: {a.png}  (the admin scans this in WAVE)", file=sys.stderr)
+    print(cert)
+
+
+def _cmd_verify_cert(a):
+    at = dt.datetime.now(dt.timezone.utc)
+    result, cert = verify_cert(_read_text_arg(a.cert), load_public_keys([Path(p) for p in a.pub]), at=at)
+    print(f"Result: {result}")
+    if "why" in cert:
+        print(f"Why: {cert['why']}")
+    elif cert:
+        print(f"Admin: {cert['admin_name']}  place: {cert['place_name']} ({cert['place_id']})  "
+              f"valid {cert['issued_at']} to {cert['expires_at']}  cert_id: {cert['cert_id']}")
+    sys.exit(0 if result == VALID else 1)
+
+
+def _load_admin_private_key(path: Path) -> ec.EllipticCurvePrivateKey:
+    try:
+        key = serialization.load_pem_private_key(path.read_bytes(), password=None)
+    except (ValueError, TypeError) as exc:
+        raise WaveError(f"could not load admin key ({exc})") from exc
+    if not isinstance(key, ec.EllipticCurvePrivateKey) or not isinstance(key.curve, ec.SECP256R1):
+        raise WaveError("admin key must be P-256")
+    return key
+
+
+def _cmd_sign_place_registry(a):
+    """TEST HELPER: on a real admin the phone signs and uploads (phase 4)."""
+    data = Path(a.registry).read_bytes()
+    reg, errors, warnings = validate_registry(data)
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    if errors:
+        raise WaveError("registry is invalid: " + "; ".join(errors))
+    if "place_id" not in reg:
+        raise WaveError("a place registry needs \"place_id\"")
+    package = sign_place_registry(data, _load_admin_private_key(Path(a.admin_key)), _read_text_arg(a.cert))
+    Path(a.out).write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+    print(f"Package: {a.out}")
+
+
+def _cmd_verify_package(a):
+    package = json.loads(Path(a.package).read_text(encoding="utf-8"))
+    result, reg = verify_package(package, load_public_keys([Path(p) for p in a.pub]))
+    print(f"Result: {result}")
+    if reg:
+        print(f"Place: {reg['place_id']}  version: {reg['version']}  networks: {len(reg['networks'])}  "
+              f"blocked: {len(reg.get('blocked', []))}")
+    sys.exit(0 if result == VALID else 1)
+
+
 def _cmd_test_vectors(a):
     vectors = make_test_vectors()
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(vectors, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"Wrote {out}: {len(vectors['registry_cases'])} registry cases, {len(vectors['qr_cases'])} QR cases")
+    print(f"Wrote {out}: {len(vectors['registry_cases'])} registry cases, {len(vectors['qr_cases'])} QR cases, "
+          f"{len(vectors['cert_cases'])} certificate cases, {len(vectors['package_cases'])} package cases")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -765,6 +1165,38 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--registry")
     s.add_argument("--today", help="YYYYMMDD, for testing")
     s.set_defaults(func=_cmd_verify_qr)
+
+    s = sub.add_parser("admin-request", help="TEST HELPER: make a test admin key and its request text")
+    s.add_argument("--name", required=True, help="admin's name, e.g. 'Ana Cruz'")
+    s.add_argument("--place", required=True, help="place id, e.g. batstateu")
+    s.add_argument("--out-dir", default="keys")
+    s.set_defaults(func=_cmd_admin_request)
+
+    s = sub.add_parser("certify-admin", help="root-sign an admin's request: they may publish for one place")
+    s.add_argument("--request", required=True, help="WAVEREQ:1:... text, or @file")
+    s.add_argument("--place", required=True, help="place id; must match the request")
+    s.add_argument("--place-name", required=True, help="e.g. 'Batangas State University'")
+    s.add_argument("--days", type=int, default=365)
+    s.add_argument("--key", required=True, help="keys/<root-key-id>.private.pem")
+    s.add_argument("--png", help="write the certificate as a QR image here")
+    s.set_defaults(func=_cmd_certify_admin)
+
+    s = sub.add_parser("verify-cert", help="check an admin certificate (WAVECERT:1:... or @file)")
+    s.add_argument("cert")
+    s.add_argument("--pub", action="append", required=True, help="keys/<root-key-id>.public.json")
+    s.set_defaults(func=_cmd_verify_cert)
+
+    s = sub.add_parser("sign-place-registry", help="TEST HELPER: sign a place registry with a test admin key")
+    s.add_argument("registry")
+    s.add_argument("--admin-key", required=True)
+    s.add_argument("--cert", required=True, help="WAVECERT:1:... text, or @file")
+    s.add_argument("--out", required=True, help="package JSON file to write")
+    s.set_defaults(func=_cmd_sign_place_registry)
+
+    s = sub.add_parser("verify-package", help="check a place registry package from the root down")
+    s.add_argument("package")
+    s.add_argument("--pub", action="append", required=True, help="keys/<root-key-id>.public.json")
+    s.set_defaults(func=_cmd_verify_package)
 
     s = sub.add_parser("test-vectors", help="write test vectors for the Kotlin verifier")
     s.add_argument("--out", default="test-vectors/test_vectors.json")

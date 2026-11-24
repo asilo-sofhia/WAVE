@@ -164,4 +164,30 @@ curl -H "X-Forwarded-For: 8.8.8.8" https://wave-fkn3.onrender.com/v1/exit-path
 
 **The app side:** the Android app sends `/v1/exit-path` over the Wi-Fi network (never mobile data) and compares `asn` with the registry's `campus_asns`; it downloads `/v1/registry` on start and on Refresh. Its default server address is `wave.serverUrl` in the project's `gradle.properties`.
 
+## Place admins (multi-place publishing, phase 1)
+Each place (BatStateU, a mall, …) has its own admins, who publish from their phones. The owner certifies each admin **once** with the root key. Design: `docs/superpowers/specs/2026-11-24-multi-place-admins.md`; formats: CONTRACT §6–7.
+
+**1. The root key** (once, by the WAVE owner; passphrase-protected, keep a USB backup offline):
+```bash
+python signing/wave_sign.py keygen --key-id wave-root-2026
+```
+
+**2. Certify an admin** (once per admin phone). Their phone shares a `WAVEREQ:1:…` text, which arrives in phase 3:
+```bash
+python signing/wave_sign.py certify-admin --request "WAVEREQ:1:..." --place batstateu --place-name "Batangas State University" --days 365 --key keys/wave-root-2026.private.pem --png out/cert-ana.png
+python signing/wave_sign.py verify-cert @out/cert-ana.txt --pub keys/wave-root-2026.public.json
+```
+The admin scans `out/cert-ana.png` in WAVE. The tool refuses a request that asks for a different place.
+
+**3. Rehearse on the laptop**, before the phone parts exist. Two test helpers stand in for the phone:
+```bash
+python signing/wave_sign.py admin-request --name "Ana Cruz" --place batstateu          # makes keys/admin-batstateu-1.private.pem, prints WAVEREQ:1:...
+python signing/wave_sign.py certify-admin --request "WAVEREQ:1:..." --place batstateu --place-name "Batangas State University" --key keys/wave-root-2026.private.pem > out/cert.txt
+# a place registry: a normal registry plus "place_id": "batstateu", "key_id" = the certificate's cert_id,
+# and an "expires_at" no later than the certificate's (a list can't outlive its certificate)
+python signing/wave_sign.py sign-place-registry registry/batstateu.json --admin-key keys/admin-batstateu-1.private.pem --cert @out/cert.txt --out out/package.json
+python signing/wave_sign.py verify-package out/package.json --pub keys/wave-root-2026.public.json   # Result: VALID
+```
+
+
 Third-party code: `cryptography` (Apache-2.0/BSD), `qrcode` (BSD), `Pillow` (MIT-CMU), `pytest` (MIT); server: `fastapi` (MIT; with `starlette` BSD-3-Clause and `pydantic` MIT), `uvicorn[standard]` (BSD-3-Clause), `httpx` (BSD-3-Clause, tests only). Data: IPtoASN (PDDL).
