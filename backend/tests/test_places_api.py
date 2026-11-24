@@ -1,5 +1,6 @@
 """Tests for the place endpoints (CONTRACT §4): upload, list, download. Run from backend/."""
 import json
+import time
 import sys
 from pathlib import Path
 
@@ -145,6 +146,41 @@ def test_storage_down_is_503_without_secrets(tmp_path, root):
         assert "SECRETPW" not in r.text
     assert health.status_code == 200 and "SECRETPW" not in health.text
     assert "SECRETPW" not in repr(settings)
+
+
+class SlowStore:
+    """A database that hangs: every call blocks for a second, then fails."""
+    kind = "postgres"
+
+    def _slow(self, *_):
+        time.sleep(1.0)
+        raise StorageUnavailable("database unreachable")
+
+    put = places = get = _slow
+
+
+def test_slow_storage_does_not_block_health(tmp_path, root):
+    """Waiting on the database must not use up the threads that /v1/health and /v1/exit-path need."""
+    import asyncio
+
+    import httpx
+
+    app = create_app(settings_for(tmp_path, root), place_store=SlowStore())
+
+    async def scenario() -> float:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t", timeout=60) as c:
+            flood = [asyncio.create_task(c.get("/v1/places")) for _ in range(60)]
+            await asyncio.sleep(0.2)
+            t0 = time.perf_counter()
+            r = await c.get("/v1/health")
+            took = time.perf_counter() - t0
+            assert r.status_code == 200
+            answers = await asyncio.gather(*flood)
+            assert {a.status_code for a in answers} == {503}
+            return took
+
+    assert asyncio.run(scenario()) < 0.5
 
 
 def test_root_keys_env(root):

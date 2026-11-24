@@ -12,6 +12,8 @@ import datetime as dt
 import logging
 from contextlib import asynccontextmanager
 
+import anyio.to_thread
+from anyio import CapacityLimiter
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -39,6 +41,10 @@ UPLOAD_STATUS = {
     pl.UPLOADS_OFF: 503, pl.STORAGE_UNAVAILABLE: 503,
 }
 NO_STORE = {"Cache-Control": "no-store"}
+#: At most this many requests wait on the place database at once. They get their own threads, so a slow or
+#: unreachable database can't use up the threads /v1/health and /v1/exit-path run on. It also stays under
+#: Supabase's pooler client limit (15 on the free tier).
+PLACE_DB_THREADS = 8
 
 
 def _answer(result: str, **extra) -> JSONResponse:
@@ -60,6 +66,12 @@ def create_app(settings: Settings | None = None, place_store: pl.PlaceStore | No
     root_keys = {kid: Ed25519PublicKey.from_public_bytes(raw) for kid, raw in settings.root_public_keys}
     if not root_keys:
         log.warning("WAVE_ROOT_PUBLIC_KEYS is not set: place uploads are off (%s).", pl.UPLOADS_OFF)
+    limiter: list[CapacityLimiter] = []  # made inside the event loop, on first use
+
+    async def in_db_thread(fn, *args):
+        if not limiter:
+            limiter.append(CapacityLimiter(PLACE_DB_THREADS))
+        return await anyio.to_thread.run_sync(fn, *args, limiter=limiter[0])
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -110,7 +122,7 @@ def create_app(settings: Settings | None = None, place_store: pl.PlaceStore | No
         if record is None:
             return _answer(result)
         try:
-            stored = await run_in_threadpool(store.put, record)
+            stored = await in_db_thread(store.put, record)
         except pl.StorageUnavailable as exc:
             log.warning("place storage: %s", exc)
             return _answer(pl.STORAGE_UNAVAILABLE)
@@ -120,18 +132,18 @@ def create_app(settings: Settings | None = None, place_store: pl.PlaceStore | No
         return _answer(pl.STORED, place_id=record.place_id, version=record.version)
 
     @app.get("/v1/places")
-    def list_places() -> JSONResponse:
+    async def list_places() -> JSONResponse:
         try:
-            records = store.places()
+            records = await in_db_thread(store.places)
         except pl.StorageUnavailable as exc:
             log.warning("place storage: %s", exc)
             return _answer(pl.STORAGE_UNAVAILABLE)
         return JSONResponse({"places": [r.summary() for r in records]}, headers=NO_STORE)
 
     @app.get("/v1/places/{place_id}/registry")
-    def get_place_registry(place_id: str) -> JSONResponse:
+    async def get_place_registry(place_id: str) -> JSONResponse:
         try:
-            record = store.get(place_id)
+            record = await in_db_thread(store.get, place_id)
         except pl.StorageUnavailable as exc:
             log.warning("place storage: %s", exc)
             return _answer(pl.STORAGE_UNAVAILABLE)

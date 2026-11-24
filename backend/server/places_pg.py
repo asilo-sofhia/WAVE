@@ -25,6 +25,9 @@ create table if not exists wave_places (
 alter table wave_places enable row level security;
 """
 
+CONNECT_TIMEOUT_S = 5
+TIMEOUTS = "set statement_timeout = '5s'; set lock_timeout = '3s'"
+
 COLUMNS = ("place_id", "place_name", "version", "cert_id", "admin_name",
            "registry_b64url", "signature_b64url", "cert", "updated_at")
 
@@ -53,7 +56,14 @@ class PostgresPlaceStore:
 
     def _connect(self):
         # prepare_threshold=None: Supabase's pooler can't use prepared statements.
-        return self._psycopg.connect(self._url, connect_timeout=10, autocommit=True, prepare_threshold=None)
+        conn = self._psycopg.connect(self._url, connect_timeout=CONNECT_TIMEOUT_S, autocommit=True,
+                                     prepare_threshold=None)
+        try:
+            conn.execute(TIMEOUTS)  # a stuck query or a lock (e.g. the SQL editor) can't hold a thread forever
+        except BaseException:
+            conn.close()
+            raise
+        return conn
 
     def _run(self, work):
         """Run work(conn) on a fresh connection. Any database error becomes StorageUnavailable without the URL."""
