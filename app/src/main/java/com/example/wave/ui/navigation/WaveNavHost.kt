@@ -125,6 +125,7 @@ fun WaveNavHost(
                 onOpenRadar = { nav.navigate(Routes.RADAR) },
                 initialTab = entry.arguments?.getString(Routes.ARG_TAB)
                     ?.let { name -> AdminTab.entries.firstOrNull { it.name == name } } ?: AdminTab.APPROVED,
+                onNeedAdmin = { nav.navigate(Routes.adminAccess()) { popUpTo(Routes.SURVEY) { inclusive = true } } },
             )
         }
         composable(

@@ -155,13 +155,20 @@ fun SurveyRoute(
     onBack: () -> Unit,
     onOpenRadar: () -> Unit,
     initialTab: AdminTab = AdminTab.APPROVED,
+    onNeedAdmin: () -> Unit = {},
 ) {
+    val admin by container.adminEnrollment.status.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { container.adminEnrollment.refresh() } // an ID card can expire while the app is open
+    if (!canOpenManageRegistry(admin)) {
+        // Every way in (the gate, Admin Scan's "View details") needs a valid ID card in release builds.
+        LaunchedEffect(Unit) { onNeedAdmin() }
+        return
+    }
     val vm = waveViewModel {
         SurveyViewModel(container.registryDraft, { container.registryRepository.state.value.registryOrNull }, container.exitPathFetcher)
     }
     val draft by vm.draft.collectAsStateWithLifecycle()
     val actions by vm.actions.collectAsStateWithLifecycle()
-    val admin by container.adminEnrollment.status.collectAsStateWithLifecycle()
     val resolver = LocalContext.current.contentResolver
     val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) vm.publish(resolver, uri)

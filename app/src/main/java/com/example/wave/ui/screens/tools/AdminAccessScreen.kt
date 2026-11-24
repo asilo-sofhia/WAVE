@@ -72,6 +72,7 @@ import com.example.wave.ui.theme.WAVETheme
 import com.example.wave.verify.AdminCertificate
 import com.example.wave.verify.AdminRequest
 import com.example.wave.verify.CertResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -96,6 +97,26 @@ fun installMessage(result: InstallResult): AdminMessage = when (result) {
 val NO_SCREEN_LOCK = AdminMessage("Set a screen lock (PIN, pattern or fingerprint) first, then try again.", true)
 
 private val DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault())
+
+/**
+ * Runs an admin action; any failure becomes a message on the card instead of a crash (Keystore errors differ
+ * between phones, and saving can fail when storage is full).
+ */
+fun adminAction(block: () -> AdminMessage?): AdminMessage? = try {
+    block()
+} catch (e: CancellationException) {
+    throw e
+} catch (_: NoScreenLock) {
+    NO_SCREEN_LOCK
+} catch (e: IllegalArgumentException) {
+    AdminMessage(e.message ?: "Check the name and place ID.", true)
+} catch (_: Exception) {
+    AdminMessage("Something went wrong on this phone. Try again.", true)
+}
+
+/** Manage registry opens only with a valid ID card (every way in); debug builds may skip it for testing. */
+fun canOpenManageRegistry(status: AdminStatus, debug: Boolean = BuildConfig.DEBUG): Boolean =
+    debug || status.adminLabel() != null
 
 /** "Admin · <place>" when this phone holds a valid ID card, else null. */
 fun AdminStatus.adminLabel(): String? =
@@ -123,7 +144,9 @@ fun AdminAccessRoute(
 
     LaunchedEffect(Unit) { enrolment.refresh() }
     LaunchedEffect(certText) {
-        if (!certText.isNullOrBlank()) message = installMessage(withContext(Dispatchers.Default) { enrolment.install(certText) })
+        if (!certText.isNullOrBlank()) {
+            message = withContext(Dispatchers.IO) { adminAction { installMessage(enrolment.install(certText)) } }
+        }
     }
 
     AdminAccessScreen(
@@ -136,14 +159,7 @@ fun AdminAccessRoute(
             working = true
             message = null
             scope.launch {
-                message = try {
-                    withContext(Dispatchers.Default) { enrolment.request(name, place) }
-                    null
-                } catch (_: NoScreenLock) {
-                    NO_SCREEN_LOCK
-                } catch (e: IllegalArgumentException) {
-                    AdminMessage(e.message ?: "Check the name and place ID.", true)
-                }
+                message = withContext(Dispatchers.IO) { adminAction { enrolment.request(name, place); null } }
                 working = false
             }
         },
@@ -158,11 +174,14 @@ fun AdminAccessRoute(
         onScanCard = onScanCard,
         onPasteCard = {
             val pasted = context.clipboardText()
-            message = if (pasted.isNullOrBlank()) AdminMessage("Copy the ID card text first.", true) else installMessage(enrolment.install(pasted))
+            if (pasted.isNullOrBlank()) {
+                message = AdminMessage("Copy the ID card text first.", true)
+            } else {
+                scope.launch { message = withContext(Dispatchers.IO) { adminAction { installMessage(enrolment.install(pasted)) } } }
+            }
         },
         onStartOver = {
-            enrolment.remove()
-            message = null
+            scope.launch { message = withContext(Dispatchers.IO) { adminAction { enrolment.remove(); null } } }
         },
         onContinue = onContinue,
     )

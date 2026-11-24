@@ -5,9 +5,9 @@ import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.security.keystore.StrongBoxUnavailableException
 import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.security.ProviderException
 import java.security.spec.ECGenParameterSpec
 
 /** The place admin's own key on this phone (P-256, ES256). Only its PUBLIC half ever leaves the phone. */
@@ -40,7 +40,8 @@ class KeystoreAdminKeys(private val context: Context) : AdminKeys {
         if (keyguard == null || !keyguard.isDeviceSecure) throw NoScreenLock()
         try {
             generate(strongBox = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-        } catch (_: StrongBoxUnavailableException) {
+        } catch (_: ProviderException) {
+            // StrongBoxUnavailableException, or a StrongBox chip that fails on this phone: use the normal secure hardware.
             generate(strongBox = false)
         }
         return requireNotNull(publicKey()) { "the admin key was not saved" }
