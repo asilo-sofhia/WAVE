@@ -65,6 +65,7 @@ def test_health_without_registry_or_asn_data(tmp_path):
         "registry_version": None,
         "asn_db_loaded": False,
         "asn_db_date": None,
+        "places_storage": "memory",
     }
 
 
