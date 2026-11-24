@@ -192,3 +192,15 @@ def test_root_keys_env(root):
     for bad in ("bad id!:" + b64, "wave-root-test:AAAA", "no-colon-here"):
         with pytest.raises(ConfigError):
             Settings.from_env({"WAVE_ROOT_PUBLIC_KEYS": bad})
+
+
+def test_large_answers_are_gzipped(tmp_path, root):
+    """Answers over 1 KiB are compressed when the client asks (Android's HttpURLConnection does by itself)."""
+    package, _ = make_package(root=root)
+    with client(settings_for(tmp_path, root)) as c:
+        assert post(c, "testplace", json.dumps(package).encode()).status_code == 200
+        big = c.get("/v1/places/testplace/registry", headers={"Accept-Encoding": "gzip"})
+        small = c.get("/v1/health", headers={"Accept-Encoding": "gzip"})
+    assert big.headers.get("content-encoding") == "gzip"
+    assert big.json() == package
+    assert "content-encoding" not in small.headers

@@ -68,6 +68,21 @@ class ServerExitPathCheckerTest {
         assertEquals(listOf(PENDING, FAILED), run(checker(CountingFetcher { answer(9299) }, 4775)))
     }
 
+    /**
+     * With several lists, only the ASNs of the list that holds the connected access point count: a place list
+     * without a provider can't judge (never FAILED because ANOTHER place's provider differs).
+     */
+    @Test
+    fun onlyTheConnectedListsAsnsCount() {
+        fun perList(asnsForBssid: Set<Int>) = ServerExitPathChecker(
+            CountingFetcher { answer(4775) }, registry(9299), retryDelaysMs = listOf(0, 0),
+            asnsFor = { bssid -> if (bssid == FakeFixtures.campus.bssid) asnsForBssid else setOf(1) },
+        )
+        assertEquals(listOf(PENDING, UNREACHABLE), run(perList(emptySet())))
+        assertEquals(listOf(PENDING, PASSED), run(perList(setOf(4775))))
+        assertEquals(listOf(PENDING, FAILED), run(perList(setOf(9299))))
+    }
+
     /** A registry whose campus ASN was never measured (placeholder 0) can't judge anything: never FAILED. */
     @Test
     fun placeholderAsnZeroCantBeChecked() {

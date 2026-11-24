@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware.gzip import GZipMiddleware
 
 from signing import wave_sign as ws
 
@@ -86,6 +87,8 @@ def create_app(settings: Settings | None = None, place_store: pl.PlaceStore | No
     # No interactive docs / OpenAPI schema: the only client is the Android app.
     app = FastAPI(title="WAVE server", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.settings = settings
+    # Place lists can be large; answers over 1 KiB are gzip-compressed when the client asks (Android always does).
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.state.asn_db = None
 
     @app.get("/v1/health")
