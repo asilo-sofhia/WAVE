@@ -37,6 +37,10 @@ import com.example.wave.R
 import com.example.wave.data.admin.DraftAp
 import com.example.wave.data.admin.DraftSource
 import com.example.wave.data.admin.RegistryDraft
+import com.example.wave.verify.CertResult
+import com.example.wave.data.admin.AdminStatus
+import com.example.wave.data.admin.PublishOutcome
+import com.example.wave.data.admin.PlacePublisher
 import com.example.wave.data.admin.RegistryDraftStore
 import com.example.wave.data.admin.RegistryJsonWriter
 import com.example.wave.data.exitpath.ExitPathFetcher
@@ -75,6 +79,7 @@ class SurveyViewModel(
     private val draftStore: RegistryDraftStore,
     private val currentRegistry: () -> Registry?,
     private val exitPath: ExitPathFetcher?,
+    private val publisher: PlacePublisher? = null,
 ) : ViewModel() {
     val draft: StateFlow<RegistryDraft?> = draftStore.draft
 
@@ -142,6 +147,35 @@ class SurveyViewModel(
         )
     }
 
+    /**
+     * Publish from the phone: [unlock] shows the system prompt (fingerprint / screen lock), then the list is signed
+     * with the admin key and uploaded. One more unlock if the first one ran out before signing.
+     */
+    fun publishToServer(placeName: String, unlock: suspend () -> Boolean) = viewModelScope.launch {
+        val p = publisher ?: return@launch
+        val d = draftStore.draft.value ?: return@launch
+        if (_actions.value.publishing) return@launch
+        _actions.value = _actions.value.copy(publishing = true, message = null)
+        // Ask the server for the version first (it may need a minute to wake), THEN unlock: the 30 s unlock is
+        // spent only on signing and uploading.
+        val outcome: PublishOutcome = when (val step = p.prepare(d)) {
+            is PublishOutcome -> step
+            is PlacePublisher.Prepared -> {
+                var result: PublishOutcome = PublishOutcome.NeedsUnlock
+                if (unlock()) {
+                    result = p.signAndUpload(step)
+                    if (result == PublishOutcome.NeedsUnlock && unlock()) result = p.signAndUpload(step)
+                }
+                result
+            }
+        }
+        val published = outcome as? PublishOutcome.Answered
+        if (published?.answer?.result == "STORED") {
+            draftStore.update { it.copy(baseVersion = maxOf(it.baseVersion, published.version)) }
+        }
+        _actions.value = _actions.value.copy(publishing = false, message = publishMessage(outcome, placeName))
+    }
+
     private fun say(text: String) {
         _actions.value = _actions.value.copy(message = text)
     }
@@ -165,11 +199,18 @@ fun SurveyRoute(
         return
     }
     val vm = waveViewModel {
-        SurveyViewModel(container.registryDraft, { container.registryRepository.state.value.registryOrNull }, container.exitPathFetcher)
+        SurveyViewModel(
+            container.registryDraft,
+            { container.registryRepository.state.value.registryOrNull },
+            container.exitPathFetcher,
+            container.placePublisher,
+        )
     }
     val draft by vm.draft.collectAsStateWithLifecycle()
     val actions by vm.actions.collectAsStateWithLifecycle()
-    val resolver = LocalContext.current.contentResolver
+    val context = LocalContext.current
+    val resolver = context.contentResolver
+    val placeName = (admin as? AdminStatus.Enrolled)?.takeIf { it.validity == CertResult.VALID }?.cert?.placeName
     val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) vm.publish(resolver, uri)
     }
@@ -186,6 +227,10 @@ fun SurveyRoute(
         onClear = { vm.clear() },
         initialTab = initialTab,
         adminLabel = admin.adminLabel(),
+        publishTo = placeName,
+        onPublishToServer = {
+            if (placeName != null) vm.publishToServer(placeName) { context.confirmWithScreenLock("Publish Wi-Fi list", placeName) }
+        },
     )
 }
 
@@ -203,6 +248,9 @@ fun ManageRegistryScreen(
     onClear: () -> Unit,
     /** "Admin · <place>" when this phone holds a valid ID card. */
     adminLabel: String? = null,
+    /** The place to publish to (valid ID card), or null: Publish then saves a file. */
+    publishTo: String? = null,
+    onPublishToServer: () -> Unit = {},
     modifier: Modifier = Modifier,
     initialTab: AdminTab = AdminTab.APPROVED,
     onBlock: (bssids: List<String>, ssid: String, reason: String) -> Unit = { _, _, _ -> },
@@ -273,7 +321,7 @@ fun ManageRegistryScreen(
             item(key = "add") {
                 SecondaryButton("Add from Wi-Fi radar", onClick = onOpenRadar, icon = R.drawable.ic_radar, modifier = Modifier.padding(top = Spacing.s))
             }
-            item(key = "actions") { AdminActionsCard(draft, actions, onDetectProvider, onPublish, onClear) }
+            item(key = "actions") { AdminActionsCard(draft, actions, onDetectProvider, onPublish, onClear, publishTo, onPublishToServer) }
         }
     }
     editing?.let { entry ->
@@ -292,8 +340,18 @@ private fun apCount(n: Int) = if (n == 1) "1 access point" else "$n access point
 // ---- Previews: approved, blocked, empty, loading ----
 
 @Composable
-private fun PreviewOf(draft: RegistryDraft?, tab: AdminTab = AdminTab.APPROVED) = WAVETheme {
-    WaveBackground { ManageRegistryScreen(draft, AdminActionsUi(), {}, {}, {}, {}, {}, {}, initialTab = tab) }
+private fun PreviewOf(
+    draft: RegistryDraft?,
+    tab: AdminTab = AdminTab.APPROVED,
+    actions: AdminActionsUi = AdminActionsUi(),
+    publishTo: String? = null,
+) = WAVETheme {
+    WaveBackground {
+        ManageRegistryScreen(
+            draft, actions, {}, {}, {}, {}, {}, {}, initialTab = tab,
+            adminLabel = publishTo?.let { "Admin · $it" }, publishTo = publishTo,
+        )
+    }
 }
 
 private val previewDraft = RegistryDraft(
@@ -317,6 +375,22 @@ private fun ManageBlockedPreview() = PreviewOf(previewDraft, AdminTab.BLOCKED)
 @Preview(showSystemUi = true, name = "Empty")
 @Composable
 private fun ManageEmptyPreview() = PreviewOf(RegistryDraft.empty(1))
+
+@Preview(showSystemUi = true, name = "Admin: publish to place", heightDp = 1600)
+@Composable
+private fun ManageAdminPreview() = PreviewOf(previewDraft, publishTo = "WAVE Test")
+
+@Preview(showSystemUi = true, name = "Admin: publishing", heightDp = 1600)
+@Composable
+private fun ManagePublishingPreview() = PreviewOf(previewDraft, actions = AdminActionsUi(publishing = true), publishTo = "WAVE Test")
+
+@Preview(showSystemUi = true, name = "Admin: published", heightDp = 1600)
+@Composable
+private fun ManagePublishedPreview() = PreviewOf(
+    previewDraft,
+    actions = AdminActionsUi(message = "Published version 2 to WAVE Test. Phones get it on their next update."),
+    publishTo = "WAVE Test",
+)
 
 @Preview(showSystemUi = true, name = "Loading")
 @Composable

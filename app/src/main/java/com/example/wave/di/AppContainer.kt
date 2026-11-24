@@ -8,7 +8,9 @@ import com.example.wave.data.QrVerifier
 import com.example.wave.data.RegistryRepository
 import com.example.wave.data.ScanRepository
 import com.example.wave.data.admin.AdminEnrollment
+import com.example.wave.data.admin.HttpPlaceServer
 import com.example.wave.data.admin.KeystoreAdminKeys
+import com.example.wave.data.admin.PlacePublisher
 import com.example.wave.data.admin.RegistryDraftStore
 import com.example.wave.data.admin.SignalTracker
 import com.example.wave.data.exitpath.ExitPathFetcher
@@ -103,7 +105,11 @@ class AppContainer(context: Context) {
     val signalTracker = SignalTracker()
 
     /** This phone as a place admin: its own Keystore key and the owner's ID card (CONTRACT §6). */
-    val adminEnrollment = AdminEnrollment(File(context.filesDir, "admin/enrolment.json"), KeystoreAdminKeys(context))
+    private val adminKeys = KeystoreAdminKeys(context)
+    val adminEnrollment = AdminEnrollment(File(context.filesDir, "admin/enrolment.json"), adminKeys)
+
+    /** Publish from the phone: sign the place's list with the admin key and upload it (CONTRACT §4, §7). */
+    val placePublisher = PlacePublisher(adminEnrollment, adminKeys, HttpPlaceServer(serverSettings::current))
 
     /** Asks the server for its registry now (debug menu's Update registry button). */
     val registrySync: suspend () -> RegistrySync = { syncingRegistry.sync(force = true) }
