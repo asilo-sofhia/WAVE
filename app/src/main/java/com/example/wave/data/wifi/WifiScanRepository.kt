@@ -35,6 +35,8 @@ class WifiScanRepository(
     private val registry: StateFlow<RegistryState>,
     private val classifier: NetworkClassifier,
     scope: CoroutineScope,
+    /** How many place lists are merged into [registry] (shown in the source label). */
+    private val placeCount: () -> Int = { 0 },
 ) : ScanRepository {
 
     @Volatile private var lastScan: ScanResult? = null
@@ -117,11 +119,19 @@ class WifiScanRepository(
         )
     }
 
+    private fun placeLabel(n: Int) = if (n == 1) "1 place" else "$n places"
+
     private fun registryInfo(state: RegistryState): RegistryInfo {
         val reg = state.registryOrNull
             ?: return RegistryInfo(source = "no school registry yet", updatedAt = "", loaded = false)
         val date = reg.issuedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d"))
-        val source = if (state is RegistryState.Stale) "out-of-date registry v${reg.version}" else "signed registry v${reg.version}"
+        val places = placeCount()
+        val source = when {
+            places > 0 && state is RegistryState.Stale -> "signed lists (out of date) + ${placeLabel(places)}"
+            places > 0 -> "signed lists + ${placeLabel(places)}"
+            state is RegistryState.Stale -> "out-of-date registry v${reg.version}"
+            else -> "signed registry v${reg.version}"
+        }
         return RegistryInfo(source = source, updatedAt = date)
     }
 

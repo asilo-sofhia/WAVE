@@ -24,7 +24,11 @@ import com.example.wave.data.fake.FakeScanRepository
 import com.example.wave.data.fake.ScenarioStore
 import com.example.wave.data.qr.QrImageReader
 import com.example.wave.data.qr.SignedQrVerifier
+import com.example.wave.data.registry.CombinedRegistryRepository
+import com.example.wave.data.registry.HttpPlaceDirectory
 import com.example.wave.data.registry.HttpRegistryDownloader
+import com.example.wave.data.registry.PlaceListStore
+import com.example.wave.data.registry.PlaceListsRepository
 import com.example.wave.data.registry.RegistryCache
 import com.example.wave.data.registry.RegistrySync
 import com.example.wave.data.registry.SignatureRegistryVerifier
@@ -98,7 +102,18 @@ class AppContainer(context: Context) {
         verifier = SignatureRegistryVerifier(),
     ).also { repo -> appScope.launch { repo.start() } }
 
-    val registryRepository: RegistryRepository = syncingRegistry
+    /**
+     * Every place's signed list (CONTRACT §7), checked from the root key down and saved on the phone. Downloaded
+     * at start and on Refresh, only for places whose version went up.
+     */
+    private val placeLists = PlaceListsRepository(
+        HttpPlaceDirectory(serverSettings::current),
+        PlaceListStore(File(context.filesDir, "places")),
+    ).also { repo -> appScope.launch { repo.loadLocal(); repo.sync() } }
+
+    /** What every screen judges against: the school list merged with every place's list. */
+    val registryRepository: RegistryRepository =
+        CombinedRegistryRepository(syncingRegistry, placeLists.lists, { placeLists.sync() }, appScope)
 
     /** Campus admin tools: the registry draft (saved on this phone) and the signal seen per access point this session. */
     val registryDraft = RegistryDraftStore(File(context.filesDir, "admin/draft.json"))
@@ -126,6 +141,7 @@ class AppContainer(context: Context) {
                 registry = registryRepository.state,
                 classifier = classifier,
                 scope = appScope,
+                placeCount = { placeLists.lists.value.size },
             )
         } else {
             FakeScanRepository(store, appScope)
