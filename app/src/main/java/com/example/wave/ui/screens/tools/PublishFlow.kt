@@ -30,6 +30,7 @@ fun publishMessage(outcome: PublishOutcome, placeName: String): String = when (o
     PublishOutcome.ServerUnreachable -> "Can't reach the WAVE server. Try again in a minute."
     PublishOutcome.NeedsUnlock -> "Not published: unlock was cancelled."
     PublishOutcome.KeyGone -> "This phone's admin key is gone. Remove admin and enrol again."
+    PublishOutcome.CouldNotSign -> "Couldn't sign on this phone. Try again; if it keeps failing, remove admin and enrol again."
     PublishOutcome.NotAdmin -> "Install your admin ID card first."
     PublishOutcome.NothingToPublish -> "Approve at least one network first."
 }

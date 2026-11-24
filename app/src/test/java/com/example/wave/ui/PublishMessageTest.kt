@@ -33,6 +33,10 @@ class PublishMessageTest {
         assertEquals("Not published: unlock was cancelled.", msg(PublishOutcome.NeedsUnlock))
         assertEquals("This phone's admin key is gone. Remove admin and enrol again.", msg(PublishOutcome.KeyGone))
         assertEquals("Install your admin ID card first.", msg(PublishOutcome.NotAdmin))
+        assertEquals(
+            "Couldn't sign on this phone. Try again; if it keeps failing, remove admin and enrol again.",
+            msg(PublishOutcome.CouldNotSign),
+        )
         assertEquals("Approve at least one network first.", msg(PublishOutcome.NothingToPublish))
     }
 }

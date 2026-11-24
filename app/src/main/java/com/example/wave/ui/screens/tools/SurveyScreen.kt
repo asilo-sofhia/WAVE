@@ -156,10 +156,18 @@ class SurveyViewModel(
         val d = draftStore.draft.value ?: return@launch
         if (_actions.value.publishing) return@launch
         _actions.value = _actions.value.copy(publishing = true, message = null)
-        var outcome: PublishOutcome = PublishOutcome.NeedsUnlock
-        if (unlock()) {
-            outcome = p.publish(d)
-            if (outcome == PublishOutcome.NeedsUnlock && unlock()) outcome = p.publish(d)
+        // Ask the server for the version first (it may need a minute to wake), THEN unlock: the 30 s unlock is
+        // spent only on signing and uploading.
+        val outcome: PublishOutcome = when (val step = p.prepare(d)) {
+            is PublishOutcome -> step
+            is PlacePublisher.Prepared -> {
+                var result: PublishOutcome = PublishOutcome.NeedsUnlock
+                if (unlock()) {
+                    result = p.signAndUpload(step)
+                    if (result == PublishOutcome.NeedsUnlock && unlock()) result = p.signAndUpload(step)
+                }
+                result
+            }
         }
         val published = outcome as? PublishOutcome.Answered
         if (published?.answer?.result == "STORED") {

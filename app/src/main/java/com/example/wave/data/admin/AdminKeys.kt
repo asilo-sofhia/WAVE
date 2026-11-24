@@ -11,6 +11,7 @@ import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
 import java.security.Signature
+import java.security.UnrecoverableKeyException
 import java.security.ProviderException
 import java.security.spec.ECGenParameterSpec
 
@@ -85,7 +86,11 @@ class KeystoreAdminKeys(private val context: Context) : AdminKeys, AdminSigner {
     }
 
     override fun sign(data: ByteArray): ByteArray {
-        val key = keyStore().getKey(ALIAS, null) as? PrivateKey ?: throw KeyGone()
+        val key = try {
+            keyStore().getKey(ALIAS, null) as? PrivateKey
+        } catch (_: UnrecoverableKeyException) {
+            null // Android 12+ reports an invalidated key (screen lock changed) this way
+        } ?: throw KeyGone()
         val signature = Signature.getInstance("SHA256withECDSA")
         try {
             signature.initSign(key)

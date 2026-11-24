@@ -153,6 +153,39 @@ class PlacePublisherTest {
         assertEquals(0, server.asked)
     }
 
+    /** Any other Keystore failure (StrongBox, keystore daemon, invalidated key on Android 12+) is an outcome, never a crash. */
+    @Test
+    fun otherKeystoreFailuresAreOutcomes() = runBlocking {
+        for (e in listOf(java.security.ProviderException("strongbox"), java.security.SignatureException("x"),
+            java.security.UnrecoverableKeyException("invalidated"), IllegalStateException("keystore"))) {
+            keys.signFailure = e
+            assertEquals(e.toString(), PublishOutcome.CouldNotSign, publisher().publish(draft))
+        }
+        assertTrue(server.uploads.isEmpty())
+    }
+
+    /**
+     * The version is fetched BEFORE the unlock prompt (a sleeping server can take a minute to wake, longer than the
+     * key's 30 s unlock), and signing then needs no more server round trip before the upload.
+     */
+    @Test
+    fun prepareFetchesTheVersionWithoutSigning() = runBlocking {
+        val prepared = publisher().prepare(draft) as PlacePublisher.Prepared
+        assertEquals(5, prepared.version)
+        assertEquals(1, server.asked)
+        assertEquals(0, keys.signed)
+        assertEquals(PublishOutcome.Answered(UploadAnswer("STORED", 5), 5), publisher().signAndUpload(prepared))
+        assertEquals(1, server.asked)
+        assertEquals(1, keys.signed)
+    }
+
+    @Test
+    fun prepareRefusesEarly() = runBlocking {
+        assertEquals(PublishOutcome.NothingToPublish, publisher().prepare(draft.copy(approved = emptyList())))
+        server.down = true
+        assertEquals(PublishOutcome.ServerUnreachable, publisher().prepare(draft))
+    }
+
     @Test
     fun notEnrolled() = runBlocking {
         enrollment.remove()
