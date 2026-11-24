@@ -68,3 +68,50 @@ private fun InputStream.readAtMost(max: Int): ByteArray {
         out.write(buf, 0, n)
     }
 }
+
+/**
+ * POST a JSON [body] over HTTPS and return (status code, answer body) for ANY status: the WAVE server answers
+ * refusals (400/403/409/413/503) with JSON too (CONTRACT §4). Cancelling closes the connection.
+ *
+ * @throws IOException when the address isn't https, the answer is over [maxBytes], or the network fails.
+ */
+suspend fun httpsPostJson(
+    open: () -> URLConnection,
+    body: String,
+    maxBytes: Int,
+    connectTimeoutMs: Int = 10_000,
+    readTimeoutMs: Int = 60_000,
+): Pair<Int, String> = coroutineScope {
+    val conn = withContext(Dispatchers.IO) { open() } as? HttpsURLConnection
+        ?: throw IOException("The server address must start with https://")
+    val abortOnCancel = launch(start = CoroutineStart.UNDISPATCHED) {
+        try {
+            awaitCancellation()
+        } finally {
+            conn.disconnect()
+        }
+    }
+    try {
+        withContext(Dispatchers.IO) {
+            try {
+                val bytes = body.toByteArray(Charsets.UTF_8)
+                conn.useCaches = false
+                conn.connectTimeout = connectTimeoutMs
+                conn.readTimeout = readTimeoutMs
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.setFixedLengthStreamingMode(bytes.size)
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.setRequestProperty("Accept", "application/json")
+                conn.outputStream.use { it.write(bytes) }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                code to (stream?.use { String(it.readAtMost(maxBytes), Charsets.UTF_8) } ?: "")
+            } finally {
+                conn.disconnect()
+            }
+        }
+    } finally {
+        abortOnCancel.cancel()
+    }
+}

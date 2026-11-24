@@ -4,9 +4,13 @@ import android.app.KeyguardManager
 import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
+import android.security.keystore.UserNotAuthenticatedException
 import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.security.PrivateKey
+import java.security.Signature
 import java.security.ProviderException
 import java.security.spec.ECGenParameterSpec
 
@@ -21,6 +25,18 @@ interface AdminKeys {
     fun delete()
 }
 
+/** Signs with the admin key: ECDSA P-256 / SHA-256, DER signature (CONTRACT §7). */
+interface AdminSigner {
+    /** Throws [KeyNeedsUnlock] (unlock again) or [KeyGone] (enrol again). */
+    fun sign(data: ByteArray): ByteArray
+}
+
+/** The key needs a fresh fingerprint / screen-lock unlock (the last one is older than 30 s). */
+class KeyNeedsUnlock : Exception("Unlock again")
+
+/** The key is missing, or Android invalidated it (e.g. the screen lock was removed). */
+class KeyGone : Exception("The admin key is gone")
+
 /** The phone has no PIN, pattern, password or fingerprint, so a key that needs unlocking can't be made. */
 class NoScreenLock : Exception("Set a screen lock first")
 
@@ -28,7 +44,7 @@ class NoScreenLock : Exception("Set a screen lock first")
  * The key lives in Android Keystore (the phone's secure hardware; StrongBox when the phone has it). Using it
  * to sign (phase 4) needs the owner's fingerprint, face or screen lock within the last [AUTH_SECONDS] seconds.
  */
-class KeystoreAdminKeys(private val context: Context) : AdminKeys {
+class KeystoreAdminKeys(private val context: Context) : AdminKeys, AdminSigner {
 
     private fun keyStore(): KeyStore = KeyStore.getInstance(PROVIDER).apply { load(null) }
 
@@ -66,6 +82,20 @@ class KeystoreAdminKeys(private val context: Context) : AdminKeys {
             }
             .build()
         KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, PROVIDER).apply { initialize(spec) }.generateKeyPair()
+    }
+
+    override fun sign(data: ByteArray): ByteArray {
+        val key = keyStore().getKey(ALIAS, null) as? PrivateKey ?: throw KeyGone()
+        val signature = Signature.getInstance("SHA256withECDSA")
+        try {
+            signature.initSign(key)
+        } catch (_: UserNotAuthenticatedException) {
+            throw KeyNeedsUnlock()
+        } catch (_: KeyPermanentlyInvalidatedException) {
+            throw KeyGone()
+        }
+        signature.update(data)
+        return signature.sign()
     }
 
     override fun delete() {
