@@ -2,6 +2,7 @@ package com.example.wave.data.admin
 
 import com.example.wave.data.net.httpsGet
 import com.example.wave.data.net.httpsPostJson
+import com.example.wave.verify.AdminCert
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URL
@@ -43,8 +44,22 @@ class HttpPlaceServer(private val baseUrl: () -> String?) : PlaceServer {
     }
 }
 
+/** One entry of `GET /v1/places` (CONTRACT §4). */
+data class PlaceSummary(val placeId: String, val placeName: String, val version: Int)
+
 /** Pure readers for the server's answers (tested on the laptop). Throw on anything unexpected. */
 object PlaceServerJson {
+    /** Every place and its latest version. A place id that isn't valid (§6) makes the whole answer junk. */
+    fun index(body: String): List<PlaceSummary> {
+        val places = JSONObject(body).getJSONArray("places")
+        return (0 until places.length()).map { i ->
+            val p = places.getJSONObject(i)
+            val id = p.get("place_id") as? String ?: throw IllegalArgumentException("place_id must be text")
+            require(AdminCert.PLACE_ID.matches(id)) { "bad place_id" }
+            PlaceSummary(id, p.optString("place_name", id), wholeNumber(p.get("version")))
+        }
+    }
+
     fun latestVersion(body: String, placeId: String): Int {
         val places = JSONObject(body).getJSONArray("places")
         for (i in 0 until places.length()) {
